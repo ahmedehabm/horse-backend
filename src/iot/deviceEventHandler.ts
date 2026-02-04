@@ -190,17 +190,17 @@ async function handleCameraEvent(
         break;
       }
 
-      case "STREAM_STOPPED": {
-        await invalidateStreamToken(device.id);
+      // case "STREAM_STOPPED": {
+      //   await invalidateStreamToken(device.id);
 
-        await broadcastFeedingStatus({
-          type: "STREAM_STATUS",
-          horseId: horse.id,
-          status: "ENDED",
-          streamUrl: "ENDED",
-        });
-        break;
-      }
+      //   await broadcastFeedingStatus({
+      //     type: "STREAM_STATUS",
+      //     horseId: horse.id,
+      //     status: "ENDED",
+      //     streamUrl: "ENDED",
+      //   });
+      //   break;
+      // }
 
       case "STREAM_ERROR": {
         await invalidateStreamToken(device.id);
