@@ -12,21 +12,21 @@ const router: Router = express.Router();
 
 // ✅ Test MQTT events via HTTP (simulates AWS IoT)
 router.post(
-  "/test/feeders/:serialNumber/events",
+  "/test/feeders/:thingName/events",
   async (req: Request, res: Response) => {
     try {
-      const { serialNumber } = req.params;
+      const { thingName } = req.params as { thingName: string };
       const msg: FeedEventMessage = req.body;
 
       // ✅ Validate input
-      if (!serialNumber) {
-        return res.status(400).json({ error: "serialNumber required" });
+      if (!thingName) {
+        return res.status(400).json({ error: "thingName required" });
       }
 
       // Simulate exact MQTT event
       const event: DeviceEvent = {
-        topic: `feeders/${serialNumber}/events`,
-        serialNumber,
+        topic: `feeders/${thingName}/events`,
+        thingName,
         msg,
         timestamp: new Date(),
       };
@@ -36,7 +36,7 @@ router.post(
 
       res.status(200).json({
         success: true,
-        serialNumber,
+        thingName,
         event,
       });
     } catch (error) {

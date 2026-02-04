@@ -37,7 +37,7 @@ async function connectDatabase() {
 
 // 5. START SERVER
 connectDatabase().then(() => {
-  // ✅ Initialize Socket.IO with HTTP server
+  //  Initialize Socket.IO with HTTP server
   const { httpServer, io } = initWsClient(app);
 
   // ✅ Listen on HTTP server (not app)
@@ -45,7 +45,7 @@ connectDatabase().then(() => {
     console.log(`🚀 Server running on port ${PORT}...`);
 
     // Initialize AWS IoT MQTT connection
-    // initAwsIot(handleDeviceEvent);
+    initAwsIot(handleDeviceEvent);
   });
 
   // 6. UNHANDLED REJECTIONS

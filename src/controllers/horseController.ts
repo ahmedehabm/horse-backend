@@ -5,7 +5,7 @@ import AppError from "../utils/appError.js";
 import { prisma } from "../app.js";
 
 import APIFeatures, { parseFields } from "../utils/apiFeatures.js";
-import type { Prisma } from "@prisma/client";
+import { FeedingStatus, type Prisma } from "@prisma/client";
 
 export const getAllHorses = async (
   req: Request,
@@ -13,6 +13,7 @@ export const getAllHorses = async (
   next: NextFunction,
 ) => {
   try {
+    const { unassigned } = req.query;
     // Build query with ALL features
     const features = new APIFeatures(req.query)
       .limitFields()
@@ -30,8 +31,6 @@ export const getAllHorses = async (
       image: true,
       breed: true,
       age: true,
-      location: true,
-      defaultAmountKg: true,
       lastFeedAt: true,
       ownerId: true,
       owner: {
@@ -41,29 +40,6 @@ export const getAllHorses = async (
           email: true,
         },
       },
-      // ✅ NEW: Include both feeder and camera devices
-      // feeder: {
-      //   select: {
-      //     id: true,
-      //     deviceType: true,
-      //     thingName: true,
-      //     location: true,
-      //     feederType: true,
-      //     morningTime: true,
-      //     dayTime: true,
-      //     nightTime: true,
-      //   },
-      // },
-      // camera: {
-      //   select: {
-      //     id: true,
-      //     deviceType: true,
-      //     thingName: true,
-      //     location: true,
-      //     streamToken: true,
-      //     streamTokenIsValid: true,
-      //   },
-      // },
     };
 
     // MERGE: User fields + always include relations/count
@@ -134,6 +110,7 @@ export const getMyHorses = async (
       feeder: {
         select: {
           feederType: true,
+          thingName: true,
         },
       },
     };
@@ -589,9 +566,55 @@ export const bulkAssignHorsesToUser = async (
       },
     });
   } catch (error: any) {
-    res.status(400).json({
-      status: "error",
-      message: error.message || "Failed to assign horses",
+    next(error);
+  }
+};
+
+export const getFeedingActiveStatus = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { horseId } = req.params as { horseId: string };
+
+    // Find the most recent feeding that's not completed or failed
+    const activeFeeding = await prisma.feeding.findFirst({
+      where: {
+        horseId,
+        status: {
+          in: [
+            FeedingStatus.PENDING,
+            FeedingStatus.STARTED,
+            FeedingStatus.RUNNING,
+          ],
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        horse: {
+          include: {
+            feeder: true,
+          },
+        },
+      },
     });
+
+    // No active feeding found
+    if (!activeFeeding) {
+      throw new AppError("No active feeding found for this horse", 404);
+    }
+
+    // Return feeding status in the same format as Socket.IO events
+    return res.json({
+      horseId: activeFeeding.horseId,
+      feedingId: activeFeeding.id,
+      status: activeFeeding.status,
+      deviceName: activeFeeding.horse.feeder?.thingName || "Unknown",
+    });
+  } catch (error) {
+    next(error);
   }
 };

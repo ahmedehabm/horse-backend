@@ -75,8 +75,9 @@ app.use(protect);
 app.use("/stream", streamRoutes);
 app.use("/api/v1/horses", horseRoutes);
 
+// /horses/:horseId/feeding/active
 //test to simulate iot incoming messages
-app.use("/api", testRoutes);
+app.use("/api/v1", testRoutes);
 
 // app.use("/api/v1/feeders", feederRoutes);
 

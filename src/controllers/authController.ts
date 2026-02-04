@@ -1,5 +1,6 @@
 // src/controllers/authController.ts
 import { type NextFunction, type Request, type Response } from "express";
+import type { ExtendedError, Socket } from "socket.io";
 import AppError from "../utils/appError.js";
 import * as authServices from "../services/authServices.js";
 import { prisma } from "../app.js";
@@ -162,4 +163,72 @@ export const restrictTo = (...roles: string[]) => {
     }
     next();
   };
+};
+
+// src/middleware/protectWs.ts
+
+/**
+ * Socket.IO authentication middleware
+ * Compatible with the existing protect middleware logic
+ *
+ * Usage: io.use(protectWs);
+ */
+export const protectWs = async (
+  socket: Socket,
+  next: (err?: ExtendedError) => void,
+) => {
+  try {
+    // 1) Get token from multiple sources
+    let token: string | undefined;
+
+    // Priority 1: Token from auth object (explicitly passed from client)
+    if (socket.handshake.auth?.token) {
+      token = socket.handshake.auth.token;
+    }
+    // Priority 2: Token from cookie header
+    else if (socket.handshake.headers.cookie) {
+      const cookies = socket.handshake.headers.cookie;
+      const jwtMatch = cookies.match(/jwt=([^;]+)/);
+      token = jwtMatch?.[1];
+    }
+    // Priority 3: Token from authorization header (Bearer token)
+    else if (socket.handshake.headers.authorization?.startsWith("Bearer")) {
+      token = socket.handshake.headers.authorization.split(" ")[1];
+    }
+
+    if (!token) {
+      return next(new AppError("You are not logged in! Please log in.", 404));
+    }
+
+    // 2) Verification token
+    const decoded = await authServices.verifyToken(token);
+
+    // 3) Check user still exists
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+    });
+
+    if (!user) {
+      return next(new Error("The user no longer exists."));
+    }
+
+    // 4) Check password changed after token issued
+    if (
+      authServices.changedPasswordAfter(user.passwordChangedAt, decoded.iat!)
+    ) {
+      return next(
+        new Error("Password was recently changed! Please log in again."),
+      );
+    }
+
+    // ✅ Attach user to socket.data (Socket.IO way)
+    socket.data.user = user;
+
+    // ✅ Also attach to socket.request for compatibility
+    (socket.request as any).user = user;
+
+    next();
+  } catch (error: any) {
+    next(error);
+  }
 };

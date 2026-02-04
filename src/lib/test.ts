@@ -1,0 +1,134 @@
+import { Server as SocketIOServer } from "socket.io";
+import { createServer } from "http";
+
+// ============================================================================
+// STANDALONE TEST - No dependencies on your app
+// ============================================================================
+
+interface FeederTestConfig {
+  thingName: string;
+  baseWeight: number;
+  variance: number;
+}
+
+const TEST_FEEDERS: FeederTestConfig[] = [
+  { thingName: "FEEDER-BELLA-001", baseWeight: 12.5, variance: 0.5 },
+  { thingName: "FEEDER-LUNA-007", baseWeight: 8.3, variance: 0.3 },
+  { thingName: "FEEDER-THUNDER-002", baseWeight: 15.7, variance: 0.8 },
+];
+
+// Create minimal Socket.IO server for testing
+const httpServer = createServer();
+const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: ["http://localhost:5173", "http://localhost:3000"],
+    credentials: true,
+  },
+});
+
+/**
+ * Emit to room - standalone version
+ */
+function emitToRoom(room: string, event: string, payload: unknown): void {
+  io.to(room).emit(event, payload);
+}
+
+/**
+ * Generate random weight with slight variance
+ */
+function generateWeight(baseWeight: number, variance: number): string {
+  const fluctuation = (Math.random() - 0.5) * 2 * variance;
+  const weight = baseWeight + fluctuation;
+  return weight.toFixed(2);
+}
+
+/**
+ * Emit weight update for a single feeder
+ */
+function emitFeederWeight(thingName: string, weight: string): void {
+  const room = `feeder-weight:${thingName}`;
+
+  emitToRoom(room, "FEEDER_WEIGHT", {
+    type: "FEEDER_WEIGHT",
+    thingName,
+    weight,
+  });
+
+  console.log(`📡 Emitted weight to ${thingName}: ${weight} kg`);
+}
+
+/**
+ * Start continuous weight streaming simulation
+ */
+function startWeightSimulation(intervalMs: number = 1000): () => void {
+  console.log(`\n🔄 Starting weight simulation (every ${intervalMs}ms)...\n`);
+
+  const intervalId = setInterval(() => {
+    for (const feeder of TEST_FEEDERS) {
+      const weight = generateWeight(feeder.baseWeight, feeder.variance);
+      emitFeederWeight(feeder.thingName, weight);
+    }
+    console.log("---");
+  }, intervalMs);
+
+  return () => {
+    clearInterval(intervalId);
+    console.log("\n⏹️ Weight simulation stopped.\n");
+  };
+}
+
+// ============================================================================
+// SOCKET.IO CONNECTION HANDLING
+// ============================================================================
+
+io.on("connection", (socket) => {
+  console.log(`\n✅ Client connected: ${socket.id}`);
+
+  // Auto-join all test feeder rooms for testing
+  for (const feeder of TEST_FEEDERS) {
+    const room = `feeder-weight:${feeder.thingName}`;
+    socket.join(room);
+    console.log(`   Joined room: ${room}`);
+  }
+
+  socket.on("disconnect", (reason) => {
+    console.log(`❌ Client disconnected: ${socket.id} (${reason})`);
+  });
+});
+
+// ============================================================================
+// START SERVER AND SIMULATION
+// ============================================================================
+
+const PORT = 3000; // Different port to avoid conflict with main app
+
+httpServer.listen(PORT, () => {
+  console.log(`
+╔════════════════════════════════════════════════════════════════╗
+║           WEIGHT STREAM TEST SERVER                            ║
+╠════════════════════════════════════════════════════════════════╣
+║                                                                ║
+║   Socket.IO server running on: http://localhost:${PORT}          ║
+║                                                                ║
+║   Test feeders:                                                ║
+║     • FEEDER-BELLA-001   (base: 12.5 kg)                       ║
+║     • FEEDER-LUNA-007    (base: 8.3 kg)                        ║
+║     • FEEDER-THUNDER-002 (base: 15.7 kg)                       ║
+║                                                                ║
+║   Rooms:                                                       ║
+║     • feeder-weight:FEEDER-BELLA-001                           ║
+║     • feeder-weight:FEEDER-LUNA-007                            ║
+║     • feeder-weight:FEEDER-THUNDER-002                         ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+`);
+
+  // Start simulation after server is ready
+  const stopSimulation = startWeightSimulation(1000);
+
+  // Stop after 60 seconds
+  setTimeout(() => {
+    stopSimulation();
+    console.log("\n👋 Test complete. Server still running for connections.\n");
+  }, 60000);
+});

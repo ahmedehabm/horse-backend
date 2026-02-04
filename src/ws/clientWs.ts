@@ -3,85 +3,159 @@ import type { Server as SocketIOServer } from "socket.io";
 import type { Socket } from "socket.io";
 import type {
   BroadcastPayload,
-  ClientMessage,
   FeedNowMessage,
   StartStreamMessage,
 } from "../types/globalTypes.js";
 import AppError from "../utils/appError.js";
+import { protectWs } from "../controllers/authController.js";
+import { startFeeding, startStreaming } from "../services/deviceService.js";
+import { FeedNowSchema, StartStreamSchema } from "../lib/validators.js";
+import {
+  handleDisconnecting,
+  handleLogout,
+  initializeWeightStreaming,
+} from "./weightStreaming.js";
 
 /**
  * Store Socket.IO server instance globally for broadcasting
  */
 let ioInstance: SocketIOServer | null = null;
 
+function shouldDisconnect(err: unknown): boolean {
+  if (err instanceof AppError) {
+    // treat these as malicious / invalid usage
+    return [400, 401, 403, 422, 429].includes(err.statusCode);
+  }
+  // unknown errors: your choice
+  return false;
+}
+
+function punish(socket: Socket, err: unknown, action: string) {
+  const message = err instanceof AppError ? err.message : "Request rejected";
+
+  console.error("WS violation:", {
+    action,
+    socketId: socket.id,
+    userId: socket.data?.user?.id,
+    err,
+  });
+
+  // Tell the client once (optional)
+  socket.emit("ERROR", { message });
+
+  // Drop ONLY this connection if policy says so
+  if (shouldDisconnect(err)) {
+    socket.disconnect(true);
+  }
+}
+
 /**
- * Setup SECURE Socket.IO endpoint for browser clients
+ * Setup Socket.IO endpoint for browser clients
  */
 export function setupClientWs(io: SocketIOServer): void {
-  // ✅ Store IO instance for broadcasting
   ioInstance = io;
 
-  // ✅ Middleware - protect middleware validates user
-  // io.use((socket, next) => {
-  //   const userId = (socket.request as any).user?.id;
+  io.use(protectWs);
 
-  //   if (!userId) {
-  //     next(new Error("Unauthorized"));
-  //     return;
-  //   }
+  io.on("connection", async (socket: Socket) => {
+    const userId: string = socket.data.user.id;
 
-  //   socket.data.userId = userId;
-  //   next();
-  // });
+    socket.join(userId);
 
-  // ✅ Connection handler - everything is automatic!
-  io.on("connection", (socket: Socket) => {
-    const userId = socket.data.userId;
+    console.log(`Client WS connected: ${userId} socket=${socket.id}`);
 
-    console.log(`✅ Client WS connected: ${userId}`);
+    await initializeWeightStreaming(socket, userId, io);
 
-    // ✅ Send auth success
     socket.emit("AUTH_SUCCESS", {
       userId,
       socketId: socket.id,
       timestamp: Date.now(),
     });
 
-    // ✅ Listen for FEED_NOW
-    socket.on("FEED_NOW", async (msg: FeedNowMessage) => {
-      await handleFeedNow(socket, userId, msg);
+    socket.on("FEED_NOW", async (message: unknown) => {
+      const result = await FeedNowSchema.safeParseAsync(message);
+      if (!result.success) {
+        punish(
+          socket,
+          new AppError("Invalid FEED_NOW payload", 400),
+          "FEED_NOW",
+        );
+        return;
+      }
+
+      try {
+        const msg: FeedNowMessage = result.data;
+        await startFeeding(msg.horseId, msg.amountKg, userId);
+      } catch (err) {
+        punish(socket, err, "FEED_NOW");
+      }
     });
 
-    // ✅ Listen for START_STREAM
-    socket.on("START_STREAM", async (msg: StartStreamMessage) => {
-      await handleStartStream(socket, userId, msg);
+    socket.on("START_STREAM", async (message: unknown) => {
+      const result = await StartStreamSchema.safeParseAsync(message);
+      if (!result.success) {
+        punish(
+          socket,
+          new AppError("Invalid START_STREAM payload", 400),
+          "START_STREAM",
+        );
+        return;
+      }
+
+      try {
+        const msg: StartStreamMessage = result.data;
+        await startStreaming(msg.horseId, userId);
+      } catch (err) {
+        punish(socket, err, "START_STREAM");
+      }
     });
 
-    // ✅ Ping/Pong for keep-alive
-    socket.on("ping", () => {
-      socket.emit("pong");
+    socket.on("LOGOUT", async (_payload, ack) => {
+      await handleLogout(socket, userId, io, ack);
     });
 
-    // ✅ Automatic disconnect handling - no cleanup needed!
-    socket.on("disconnect", () => {
-      console.log(`❌ Client WS disconnected: ${userId}`);
+    socket.on("disconnecting", () => {
+      handleDisconnecting(socket, userId, io);
     });
+
+    // socket.on("disconnect", (reason) => {
+    //   console.log(
+    //     `Client WS disconnected: ${userId} socket=${socket.id} reason=${reason}`,
+    //   );
+    // });
   });
 }
 
 /**
- * Broadcast ANY payload to ALL connected clients
+ * Broadcast payload to ALL connected clients
  */
-export function broadcastFeedingStatus(payload: BroadcastPayload): void {
+export async function broadcastFeedingStatus(
+  payload: BroadcastPayload,
+): Promise<void> {
   if (!ioInstance) {
-    console.warn("⚠️  Socket.IO not initialized");
+    console.warn("⚠️ Socket.IO not initialized");
     return;
   }
 
-  if (payload.type === "FEEDING_STATUS") {
-    ioInstance.emit("FEEDING_STATUS", payload);
-  } else if (payload.type === "STREAM_STATUS") {
-    ioInstance.emit("STREAM_STATUS", payload);
+  try {
+    switch (payload.type) {
+      case "FEEDING_STATUS":
+        ioInstance.emit("FEEDING_STATUS", payload);
+        return;
+
+      case "STREAM_STATUS":
+        ioInstance.emit("STREAM_STATUS", payload);
+        return;
+
+      default: {
+        // Unknown payload type = programmer/server bug, not client maliciousness
+        console.error("❌ Unknown broadcast payload.type", payload);
+        return;
+      }
+    }
+  } catch (err) {
+    // Rare: circular JSON / internal emit error
+    console.error("❌ Broadcast failed", err);
   }
 }
 
@@ -95,119 +169,58 @@ export function sendToUser(userId: string, payload: unknown): void {
     return;
   }
 
-  // ✅ Socket.IO finds the socket by userId automatically
+  //  Socket.IO finds the socket by userId automatically
   ioInstance.to(userId).emit("MESSAGE", payload);
 }
 
-/**
- * HANDLE FEED_NOW - Send FEED_COMMAND to feeder
- */
-async function handleFeedNow(
-  socket: Socket,
-  userId: string,
-  msg: FeedNowMessage,
-): Promise<void> {
-  const { horseId, amountKg } = msg;
-
-  console.log(
-    `👤 [${userId}] FEED_NOW: horse=${horseId}, amount=${amountKg}kg`,
-  );
-
-  try {
-    const { startFeeding } = await import("../services/deviceService.js");
-    const result = await startFeeding(horseId, amountKg);
-
-    // socket.emit("FEEDING_STATUS", {
-    //   type: "FEEDING_STATUS",
-    //   status: "ACCEPTED",
-    //   feedingId: result.feeding.id,
-    //   horseId,
-    //   deviceName: result.device.thingName,
-    // } satisfies BroadcastPayload);
-
-    broadcastFeedingStatus({
-      type: "FEEDING_STATUS",
-      status: "ACCEPTED",
-      feedingId: result.feeding.id,
-      horseId,
-      deviceName: result.device.thingName,
-    });
-  } catch (err) {
-    socket.emit("ERROR", {
-      message: err instanceof AppError ? err.message : "Feeding failed",
-    });
-  }
-}
-
-/**
- * HANDLE START_STREAM - Send STREAM_COMMAND to camera
- */
-async function handleStartStream(
-  socket: Socket,
-  userId: string,
-  msg: StartStreamMessage,
-): Promise<void> {
-  const { horseId } = msg;
-
-  console.log(`👤 [${userId}] START_STREAM: horse=${horseId}`);
-
-  try {
-    const { startStreaming } = await import("../services/deviceService.js");
-    const result = await startStreaming(horseId);
-
-    socket.emit("STREAM_STATUS", {
-      type: "STREAM_STATUS",
-      status: "ACCEPTED",
-      horseId,
-      deviceName: result.device.thingName,
-      streamUrl: "WORKING ON...",
-    } satisfies BroadcastPayload);
-  } catch (err) {
-    socket.emit("ERROR", {
-      message: err instanceof AppError ? err.message : "Stream failed",
-    });
-  }
-}
-
-/**
- * Get active clients list
- */
-export function getActiveClients(): string[] {
-  if (!ioInstance) return [];
-
-  // ✅ Socket.IO provides direct access to all sockets
-  return Array.from(ioInstance.sockets.sockets.values())
-    .map((socket) => socket.data.userId)
-    .filter(Boolean) as string[];
-}
-
-/**
- * Cleanup all clients
- */
-export function cleanupClients(): void {
+export function emitToRoom(
+  room: string,
+  event: string,
+  payload: unknown,
+): void {
   if (!ioInstance) return;
-
-  // ✅ Socket.IO handles cleanup automatically
-  ioInstance.disconnectSockets();
+  ioInstance.to(room).emit(event, payload);
 }
 
-/**
- * Get connection stats
- */
-export function getConnectionStats() {
-  if (!ioInstance) {
-    return {
-      totalConnections: 0,
-      userIds: [],
-      timestamp: new Date().toISOString(),
-    };
-  }
+// /**
+//  * Get active clients list
+//  */
+// export function getActiveClients(): string[] {
+//   if (!ioInstance) return [];
 
-  return {
-    totalConnections: ioInstance.sockets.sockets.size,
-    userIds: Array.from(ioInstance.sockets.sockets.values())
-      .map((socket) => socket.data.userId)
-      .filter(Boolean),
-    timestamp: new Date().toISOString(),
-  };
-}
+//   //  Socket.IO provides direct access to all sockets
+//   return Array.from(ioInstance.sockets.sockets.values())
+//     .map((socket) => socket.data.userId)
+//     .filter(Boolean) as string[];
+// }
+
+// /**
+//  * Cleanup all clients
+//  */
+// export function cleanupClients(): void {
+//   if (!ioInstance) return;
+
+//   //  Socket.IO handles cleanup automatically
+//   ioInstance.disconnectSockets();
+// }
+
+// /**
+//  * Get connection stats
+//  */
+// export function getConnectionStats() {
+//   if (!ioInstance) {
+//     return {
+//       totalConnections: 0,
+//       userIds: [],
+//       timestamp: new Date().toISOString(),
+//     };
+//   }
+
+//   return {
+//     totalConnections: ioInstance.sockets.sockets.size,
+//     userIds: Array.from(ioInstance.sockets.sockets.values())
+//       .map((socket) => socket.data.userId)
+//       .filter(Boolean),
+//     timestamp: new Date().toISOString(),
+//   };
+// }

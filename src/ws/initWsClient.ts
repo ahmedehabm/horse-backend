@@ -24,6 +24,7 @@ export function initWsClient(app: Application): {
 
   // ✅ Setup Socket.IO handlers from clientWs.ts
   setupClientWs(io);
+  // setupWeightStreaming()
 
   return { httpServer, io };
 }

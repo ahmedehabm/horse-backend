@@ -27,10 +27,12 @@ enum FeederType {
 }
 
 enum FeedingStatus {
-  PENDING   // Command sent to device, waiting for start
-  RUNNING   // Device actively feeding
-  COMPLETED // Successfully finished
-  FAILED    // Device error or timeout
+  PENDING   // Command sent to device, waiting for start => PENDING in the client
+  STARTED //=> STARTED in the client
+  RUNNING   // Device actively feeding => RUNNING
+  COMPLETED // Successfully finished => COMPLETED
+  FAILED    // Device error or timeout => 
+  // FAILED
 }
 
 // ========================================
@@ -69,6 +71,11 @@ model Device {
   // ============ COMMON FIELDS (ALL DEVICES) ============
   thingName                String      @unique// "Stable 1 Feeder", "Main Camera"
   location            String      // "Stable 1", "Barn A"
+
+
+ //Direct User Access
+  // ownerId        String?
+  // owner          User?     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   
   // ============ FEEDER-SPECIFIC FIELDS ============

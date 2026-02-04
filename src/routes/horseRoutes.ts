@@ -7,6 +7,7 @@ import {
   createHorse,
   updateHorse,
   deleteHorse,
+  getFeedingActiveStatus,
 } from "../controllers/horseController.js";
 import { restrictTo } from "../controllers/authController.js";
 import { validateRequest } from "../lib/validateRequest.js";
@@ -20,6 +21,8 @@ const router = express.Router();
  * POST /api/v1/horses/me    → Create my horse
  */
 router.route("/me").get(getMyHorses); // Any logged-in user
+
+router.route("/:horseId/feeding/active").get(getFeedingActiveStatus);
 
 // 2. ADMIN ROUTES (admin only)
 /**

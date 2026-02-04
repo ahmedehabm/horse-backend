@@ -8,7 +8,6 @@ export interface DeviceEvent {
   topic: string;
   thingName: string;
   msg: FeedEventMessage | CameraEventMessage;
-  timestamp: Date;
 }
 
 /**
@@ -17,10 +16,11 @@ export interface DeviceEvent {
 export interface FeedEventMessage {
   type:
     | "FEEDING_STARTED"
-    | "FEEDING_PROGRESS"
+    | "FEEDING_RUNNING"
     | "FEEDING_COMPLETED"
     | "FEEDING_ERROR";
   feedingId: string;
+  horseId: string;
   errorMessage?: string;
 }
 
@@ -28,10 +28,9 @@ export interface FeedEventMessage {
  * Camer event message types from IoT devices مستلمه من
  */
 export interface CameraEventMessage {
-  type: "STREAM_STARTED" | "STREAM_STOPPED" | "STREAM_ERROR";
-  streamId?: string;
+  type: "STREAM_STARTED" | "STREAM_ERROR";
+  horseId: string;
   errorMessage?: string;
-  timestamp?: string;
 }
 
 /**
@@ -58,15 +57,14 @@ export type DeviceEventHandler = (event: DeviceEvent) => Promise<void> | void;
 /**
  * FROM FRONT END
  * WebSocket message types from frontend
+ * FEED_NOW START_STREAM
  */
 export interface FeedNowMessage {
-  type: "FEED_NOW" | "ping";
   horseId: string;
   amountKg: number;
 }
 
 export interface StartStreamMessage {
-  type: "START_STREAM";
   horseId: string;
 }
 
@@ -83,9 +81,8 @@ export type ClientMessage = FeedNowMessage | StartStreamMessage;
  */
 export type FeedingStatusPayload = {
   horseId: string;
-  feedingId: string;
-  deviceName?: string;
   status: string;
+  feedingId: string;
   errorMessage?: string;
 };
 
@@ -97,7 +94,6 @@ export type FeedingStatusPayload = {
 export type StreamStatusPayload = {
   horseId: string;
   status: string;
-  deviceName?: string;
   streamUrl: string;
   errorMessage?: string;
 };

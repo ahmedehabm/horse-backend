@@ -109,6 +109,15 @@ export const createFeedingSchema = z.object({
 
 export const updateFeedingSchema = createFeedingSchema.partial();
 
+export const FeedNowSchema = z.object({
+  horseId: z.uuid("Not Valid UUID"),
+  amountKg: z.number().positive().max(50),
+});
+
+export const StartStreamSchema = z.object({
+  horseId: z.uuid("Not a Valid UUID"),
+});
+
 // Export TypeScript types (auto-inferred from Zod)
 export type UserSignupInput = z.infer<typeof userSignupSchema>;
 export type UserLoginInput = z.infer<typeof userLoginSchema>;
