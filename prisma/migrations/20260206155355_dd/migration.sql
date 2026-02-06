@@ -8,6 +8,7 @@ CREATE TABLE `User` (
     `passwordResetToken` VARCHAR(191) NULL,
     `passwordResetExpires` DATETIME(3) NULL,
     `role` ENUM('USER', 'ADMIN') NOT NULL DEFAULT 'USER',
+    `activeStreamHorseId` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
@@ -85,6 +86,22 @@ CREATE TABLE `Feeding` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `ActiveFeeding` (
+    `id` VARCHAR(191) NOT NULL,
+    `horseId` VARCHAR(191) NOT NULL,
+    `deviceId` VARCHAR(191) NOT NULL,
+    `feedingId` VARCHAR(191) NOT NULL,
+    `status` ENUM('PENDING', 'STARTED', 'RUNNING', 'COMPLETED', 'FAILED') NOT NULL,
+    `requestedKg` DOUBLE NOT NULL,
+    `startedAt` DATETIME(3) NULL,
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `ActiveFeeding_horseId_key`(`horseId`),
+    INDEX `ActiveFeeding_status_idx`(`status`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
 ALTER TABLE `Horse` ADD CONSTRAINT `Horse_ownerId_fkey` FOREIGN KEY (`ownerId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -99,3 +116,9 @@ ALTER TABLE `Feeding` ADD CONSTRAINT `Feeding_horseId_fkey` FOREIGN KEY (`horseI
 
 -- AddForeignKey
 ALTER TABLE `Feeding` ADD CONSTRAINT `Feeding_deviceId_fkey` FOREIGN KEY (`deviceId`) REFERENCES `Device`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ActiveFeeding` ADD CONSTRAINT `ActiveFeeding_horseId_fkey` FOREIGN KEY (`horseId`) REFERENCES `Horse`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ActiveFeeding` ADD CONSTRAINT `ActiveFeeding_deviceId_fkey` FOREIGN KEY (`deviceId`) REFERENCES `Device`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;

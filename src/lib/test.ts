@@ -1,5 +1,7 @@
 import { Server as SocketIOServer } from "socket.io";
 import { createServer } from "http";
+import { prisma } from "./prisma.js";
+import type { NextFunction, Request, Response } from "express";
 
 // ============================================================================
 // STANDALONE TEST - No dependencies on your app
@@ -132,3 +134,85 @@ httpServer.listen(PORT, () => {
     console.log("\n👋 Test complete. Server still running for connections.\n");
   }, 60000);
 });
+
+/**
+ * GET /horses/stats
+ * Get dashboard statistics for the authenticated user
+ */
+export async function getHorsesStats(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const userId = req.user.id;
+
+    // Get pagination from query params (not params)
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+
+    // 1) Active feedings for ALL horses owned by this user (batch)
+    const activeFeedings = await prisma.feeding.findMany({
+      where: {
+        status: { in: ["PENDING", "STARTED", "RUNNING"] },
+        horse: { ownerId: userId },
+      },
+      select: {
+        id: true,
+        status: true,
+        horseId: true,
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    // 2) Active stream (only one per user)
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { activeStreamHorseId: true },
+    });
+
+    //this means that stream is started already
+    let activeStream: null | {
+      horseId: string;
+      status: "STARTED";
+    } = null;
+
+    if (user?.activeStreamHorseId) {
+      // Verify the horse belongs to this user + get camera
+      const horse = await prisma.horse.findFirst({
+        where: { id: user.activeStreamHorseId, ownerId: userId },
+      });
+
+      if (horse) {
+        activeStream = {
+          horseId: horse.id,
+          status: "STARTED",
+        };
+      } else {
+        // Token missing/invalid - clear active stream
+        await prisma.user.update({
+          where: { id: userId },
+          data: { activeStreamHorseId: null },
+        });
+        activeStream = null;
+      }
+    }
+
+    // 3) Send response
+    res.status(200).json({
+      status: "success",
+      data: {
+        activeFeedings: activeFeedings.map((f) => ({
+          horseId: f.horseId,
+          feedingId: f.id,
+          status: f.status,
+        })),
+        activeStream,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}

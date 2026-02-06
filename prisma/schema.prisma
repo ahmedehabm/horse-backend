@@ -1,19 +1,20 @@
-// prisma/schema.prisma - Horse Feeder Schema (with Polymorphic Device Model)
+// prisma/schema.prisma - Horse Feeder Schema (with Live Feeding Snapshot)
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "mysql"
-   url      = env("DATABASE_URL")
+  url      = env("DATABASE_URL")
 }
 
 // ========================================
 // ENUMS - System States
 // ========================================
 enum Role {
-  USER   // Regular horse owner
-  ADMIN  // Super admin (manage all devices)
+  USER
+  ADMIN
 }
 
 enum DeviceType {
@@ -22,159 +23,159 @@ enum DeviceType {
 }
 
 enum FeederType {
-  MANUAL     // Only "Feed now" button works
-  SCHEDULED  // Automatic scheduled feeding + manual
+  MANUAL
+  SCHEDULED
 }
 
 enum FeedingStatus {
-  PENDING   // Command sent to device, waiting for start => PENDING in the client
-  STARTED //=> STARTED in the client
-  RUNNING   // Device actively feeding => RUNNING
-  COMPLETED // Successfully finished => COMPLETED
-  FAILED    // Device error or timeout => 
-  // FAILED
+  PENDING
+  STARTED
+  RUNNING
+  COMPLETED
+  FAILED
 }
 
 // ========================================
-// USER - Account that owns horses/devices (with password reset)
+// USER
 // ========================================
 model User {
-  id                 String    @id @default(uuid())
-  name               String?
-  email              String    @unique
-  password           String    // bcrypt hashed password
-  // Password management 🔐
-  passwordChangedAt  DateTime?
-  passwordResetToken String?   @unique
+  id                   String    @id @default(uuid())
+  name                 String?
+  email                String    @unique
+  password             String
+  passwordChangedAt    DateTime?
+  passwordResetToken   String?   @unique
   passwordResetExpires DateTime?
-  role               Role      @default(USER)
-  
-  // Relations
-  horses             Horse[]
-  
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  
+  role                 Role      @default(USER)
+
+  activeStreamHorseId  String?
+
+  horses               Horse[]
+
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
   @@index([email])
   @@index([passwordResetToken])
 }
 
 // ========================================
-// DEVICE - Polymorphic table for all hardware (cameras, feeders, motors, sensors, etc.)
+// DEVICE (Polymorphic)
 // ========================================
 model Device {
   id                  String      @id @default(uuid())
-  
-  // Device classification (determines which fields below are used)
-  deviceType          DeviceType
-  
-  // ============ COMMON FIELDS (ALL DEVICES) ============
-  thingName                String      @unique// "Stable 1 Feeder", "Main Camera"
-  location            String      // "Stable 1", "Barn A"
+  deviceType           DeviceType
+  thingName            String      @unique
+  location             String
 
+  // FEEDER-specific
+  feederType           FeederType  @default(MANUAL)
+  morningTime          String?
+  dayTime              String?
+  nightTime            String?
 
- //Direct User Access
-  // ownerId        String?
-  // owner          User?     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-
-  
-  // ============ FEEDER-SPECIFIC FIELDS ============
-  
-  // Only populated when deviceType = FEEDER
-  feederType          FeederType  @default(MANUAL)  // MANUAL or SCHEDULED
-  morningTime         String?      // HH:MM format
-  dayTime             String?      // HH:MM format
-  nightTime           String?      // HH:MM format
-  
-  // ============ CAMERA-SPECIFIC FIELDS ============
-  // Only populated when deviceType = CAMERA
-  streamToken         String?      @unique @default(cuid())  // Secure camera stream token
-  streamTokenIsValid  Boolean?     // Token expiration flag
-  
+  // CAMERA-specific
+  streamToken          String?      @unique @default(cuid())
+  streamTokenIsValid   Boolean?
 
   // Relations
-  horsesAsFeeder      Horse[]      @relation("HorseFeeder")
-  horsesAsCamera      Horse[]      @relation("HorseCamera")
-  
-  feedings            Feeding[]
-  
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-  
+  horsesAsFeeder       Horse[]      @relation("HorseFeeder")
+  horsesAsCamera       Horse[]      @relation("HorseCamera")
+  feedings             Feeding[]
+  activeFeedings       ActiveFeeding[]
+
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
   @@index([thingName])
   @@index([deviceType])
   @@index([streamToken])
 }
 
 // ========================================
-// HORSE - Main dashboard entity (MUST have exactly ONE camera + ONE feeder)
+// HORSE
 // ========================================
 model Horse {
-  id             String   @id @default(uuid())
-  name           String   // "Bella", "Thunder"
+  id             String        @id @default(uuid())
+  name           String
   age            Int
   breed          String
   image          String?
   location       String
 
-  owner          User?     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner          User?         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId        String?
-  
-  // CONSTRAINT: Each horse has exactly 1 feeder device
-  feederId       String?    @unique  // Forces 1:1 relationship with feeder
-  feeder         Device?    @relation("HorseFeeder", fields: [feederId], references: [id])
-  
-  // CONSTRAINT: Each horse has exactly 1 camera device
-  cameraId       String?    @unique  // Forces 1:1 relationship with camera
-  camera         Device?    @relation("HorseCamera", fields: [cameraId], references: [id])
-  
-  // Default feeding amount suggestion (kg)
+
+  feederId       String?       @unique
+  feeder         Device?       @relation("HorseFeeder", fields: [feederId], references: [id])
+
+  cameraId       String?       @unique
+  camera         Device?       @relation("HorseCamera", fields: [cameraId], references: [id])
+
   defaultAmountKg Float?
-  
-  // Last feeding timestamp (dashboard display)
-  lastFeedAt     DateTime?
-  
-  // Feeding history
-  feedings       Feeding[]
-  
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  
+  lastFeedAt      DateTime?
+
+  feedings        Feeding[]
+  activeFeeding   ActiveFeeding?
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
   @@index([ownerId])
   @@index([feederId])
   @@index([cameraId])
 }
 
 // ========================================
-// FEEDING - Single feeding operation record
+// FEEDING (History / Audit)
 // ========================================
 model Feeding {
-  id          String         @id @default(uuid())
-  
-  // Foreign keys
-  horse       Horse          @relation(fields: [horseId], references: [id], onDelete: Cascade)
-  horseId     String
-  device      Device         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  deviceId    String         // Must be a FEEDER type device
-  
-  // Real-time status (triggers "See live" button)
-  status      FeedingStatus  @default(PENDING)
-  
-  // Weights (kg)
-  requestedKg Float
-  
-  // Timestamps
-  startedAt   DateTime?
-  completedAt DateTime?
-  
-  // Metadata
-  isScheduled Boolean        @default(false)
-  timeSlot    String?        // "morning" | "day" | "night"
-  
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  
+  id            String         @id @default(uuid())
+
+  horse         Horse          @relation(fields: [horseId], references: [id], onDelete: Cascade)
+  horseId       String
+
+  device        Device         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId      String
+
+  status        FeedingStatus  @default(PENDING)
+  requestedKg   Float
+
+  startedAt     DateTime?
+  completedAt   DateTime?
+
+  isScheduled   Boolean        @default(false)
+  timeSlot      String?
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
   @@index([horseId])
   @@index([deviceId])
+  @@index([status])
+}
+
+// ========================================
+// ACTIVE FEEDING (Live Snapshot - FAST READ)
+// ========================================
+model ActiveFeeding {
+  id            String         @id @default(uuid())
+
+  // One active feeding per horse (ENFORCED)
+  horse         Horse          @relation(fields: [horseId], references: [id], onDelete: Cascade)
+  horseId       String         @unique
+
+  device        Device         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId      String
+
+  // Pointer to history record
+  feedingId     String
+  status        FeedingStatus
+
+  requestedKg   Float
+
+  startedAt     DateTime?
+  updatedAt     DateTime       @updatedAt
+
   @@index([status])
 }

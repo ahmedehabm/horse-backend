@@ -8,6 +8,7 @@ import {
   updateHorse,
   deleteHorse,
   getFeedingActiveStatus,
+  getHorsesStats,
 } from "../controllers/horseController.js";
 import { restrictTo } from "../controllers/authController.js";
 import { validateRequest } from "../lib/validateRequest.js";
@@ -22,7 +23,9 @@ const router = express.Router();
  */
 router.route("/me").get(getMyHorses); // Any logged-in user
 
-router.route("/:horseId/feeding/active").get(getFeedingActiveStatus);
+// router.route("/:horseId/feeding/active").get(getFeedingActiveStatus);
+
+router.route("/stats").get(getHorsesStats);
 
 // 2. ADMIN ROUTES (admin only)
 /**

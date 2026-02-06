@@ -10,7 +10,7 @@ export function initWsClient(app: Application): {
 } {
   const httpServer = http.createServer(app);
 
-  // ✅ INITIALIZE SOCKET.IO
+  // INITIALIZE SOCKET.IO
   const io = new SocketIOServer(httpServer, {
     cors: {
       origin: process.env.CLIENT_URL || "http://localhost:5173",
@@ -22,9 +22,8 @@ export function initWsClient(app: Application): {
     connectTimeout: 45000,
   });
 
-  // ✅ Setup Socket.IO handlers from clientWs.ts
+  //  Setup Socket.IO handlers from clientWs.ts
   setupClientWs(io);
-  // setupWeightStreaming()
 
   return { httpServer, io };
 }

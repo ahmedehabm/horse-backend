@@ -1,6 +1,10 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
+import dotenv from "dotenv";
+
+dotenv.config({ path: "./config.env" });
+
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
   throw new Error("Missing DATABASE_URL env var");

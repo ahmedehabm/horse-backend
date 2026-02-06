@@ -19,6 +19,7 @@ import {
   handleLogout,
   initializeWeightStreaming,
 } from "./weightStreaming.js";
+import { initializeCameraStreaming } from "./cameraStreaming.js";
 
 /**
  * Store Socket.IO server instance globally for broadcasting
@@ -34,7 +35,7 @@ function shouldDisconnect(err: unknown): boolean {
   return false;
 }
 
-function punish(socket: Socket, err: unknown, action: string) {
+export function punish(socket: Socket, err: unknown, action: string) {
   const message = err instanceof AppError ? err.message : "Request rejected";
 
   console.error("WS violation:", {
@@ -69,6 +70,8 @@ export function setupClientWs(io: SocketIOServer): void {
     console.log(`Client WS connected: ${userId} socket=${socket.id}`);
 
     await initializeWeightStreaming(socket, userId, io);
+
+    await initializeCameraStreaming(socket, userId);
 
     socket.emit("AUTH_SUCCESS", {
       userId,

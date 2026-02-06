@@ -45,7 +45,7 @@ connectDatabase().then(() => {
     console.log(`🚀 Server running on port ${PORT}...`);
 
     // Initialize AWS IoT MQTT connection
-    initAwsIot(handleDeviceEvent);
+    // initAwsIot(handleDeviceEvent);
   });
 
   // 6. UNHANDLED REJECTIONS

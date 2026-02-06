@@ -8,6 +8,8 @@ import type {
   CommandPayload,
   FeedEventMessage,
   CameraEventMessage,
+  FeedCommand,
+  StreamCommand,
 } from "../types/globalTypes.js";
 import { emitToRoom } from "../ws/clientWs.js";
 
@@ -105,7 +107,7 @@ export function initAwsIot(onDeviceEvent: DeviceEventHandler): void {
 /**
  * Send command to ANY device (FEEDER or CAMERA)
  */
-export async function publishCommand(
+async function publishCommand(
   thingName: string,
   command: CommandPayload,
 ): Promise<void> {
@@ -119,35 +121,31 @@ export async function publishCommand(
   const topic = `${deviceType}/${thingName}/commands`;
   const payload = JSON.stringify(command);
 
-  client.publish(topic, payload, { qos: 1 }, (err?: Error) => {
-    if (err) {
-      console.error(`❌ Publish failed [${thingName}]:`, err.message);
-    } else {
-      console.log(`✅ ${command.type} sent to ${thingName}`);
-    }
+  await new Promise<void>((resolve, reject) => {
+    client!.publish(topic, payload, { qos: 1 }, (err) =>
+      err ? reject(err) : resolve(),
+    );
   });
 }
 
 /**
- * Send FEED_COMMAND to feeder (backwards compatible)
+ * Send FEED_COMMAND to feeder
  */
 export async function publishFeedCommand(
   thingName: string,
-  command: Omit<CommandPayload, "type"> & { type: "FEED_COMMAND" },
+  command: FeedCommand,
 ): Promise<void> {
-  await publishCommand(thingName, { ...command, type: "FEED_COMMAND" });
+  await publishCommand(thingName, command);
 }
 
 /**
- * Send STREAM_COMMAND to camera
+ * Send STREAM command to camera
  */
 export async function publishStreamCommand(
   thingName: string,
-  command: Omit<CommandPayload, "type"> & {
-    type: "STREAM_START_COMMAND" | "STREAM_STOP_COMMAND";
-  },
+  command: StreamCommand,
 ): Promise<void> {
-  await publishCommand(thingName, { ...command, type: "STREAM_COMMAND" });
+  await publishCommand(thingName, command);
 }
 
 export function disconnect(): Promise<void> {

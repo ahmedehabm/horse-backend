@@ -50,9 +50,9 @@ async function handleFeederEvent(
       throw new AppError("Not a valid feeder device", 404);
     }
 
-    // 2) Load the feeding by id (minimal)
+    // 2) Load feeding (history)
     const feeding = await prisma.feeding.findUnique({
-      where: { id: msg.feedingId, horseId: msg.horseId },
+      where: { id: msg.feedingId },
       select: { id: true, horseId: true, deviceId: true },
     });
 
@@ -60,21 +60,27 @@ async function handleFeederEvent(
       throw new AppError("Feeding not found", 404);
     }
 
-    // 3) Validate the feeding belongs to this feeder device
+    // 3) Validate ownership
     if (feeding.deviceId !== device.id) {
-      throw new AppError("this device not for this process", 404);
+      throw new AppError("This device is not assigned to this feeding", 403);
     }
 
     const horseId = feeding.horseId;
     const feedingId = feeding.id;
 
-    // 4) Switch does only updates + broadcasts
+    // 4) State transitions
     switch (msg.type) {
       case "FEEDING_STARTED": {
-        await prisma.feeding.update({
-          where: { id: feedingId },
-          data: { status: FeedingStatus.STARTED, startedAt: new Date() },
-        });
+        await prisma.$transaction([
+          prisma.feeding.update({
+            where: { id: feedingId },
+            data: { status: FeedingStatus.STARTED, startedAt: new Date() },
+          }),
+          prisma.activeFeeding.update({
+            where: { horseId },
+            data: { status: FeedingStatus.STARTED, startedAt: new Date() },
+          }),
+        ]);
 
         await broadcastStatus({
           type: "FEEDING_STATUS",
@@ -86,10 +92,16 @@ async function handleFeederEvent(
       }
 
       case "FEEDING_RUNNING": {
-        await prisma.feeding.update({
-          where: { id: feedingId },
-          data: { status: FeedingStatus.RUNNING },
-        });
+        await prisma.$transaction([
+          prisma.feeding.update({
+            where: { id: feedingId },
+            data: { status: FeedingStatus.RUNNING },
+          }),
+          prisma.activeFeeding.update({
+            where: { horseId },
+            data: { status: FeedingStatus.RUNNING },
+          }),
+        ]);
 
         await broadcastStatus({
           type: "FEEDING_STATUS",
@@ -103,10 +115,22 @@ async function handleFeederEvent(
       case "FEEDING_COMPLETED": {
         const now = new Date();
 
-        await prisma.feeding.update({
-          where: { id: feedingId },
-          data: { status: FeedingStatus.COMPLETED, completedAt: now },
-        });
+        await prisma.$transaction([
+          prisma.feeding.update({
+            where: { id: feedingId },
+            data: {
+              status: FeedingStatus.COMPLETED,
+              completedAt: now,
+            },
+          }),
+          prisma.activeFeeding.delete({
+            where: { horseId },
+          }),
+          prisma.horse.update({
+            where: { id: horseId },
+            data: { lastFeedAt: now },
+          }),
+        ]);
 
         await broadcastStatus({
           type: "FEEDING_STATUS",
@@ -114,19 +138,19 @@ async function handleFeederEvent(
           feedingId,
           status: "COMPLETED",
         });
-
-        await prisma.horse.update({
-          where: { id: horseId },
-          data: { lastFeedAt: now },
-        });
         break;
       }
 
       case "FEEDING_ERROR": {
-        await prisma.feeding.update({
-          where: { id: feedingId },
-          data: { status: FeedingStatus.FAILED },
-        });
+        await prisma.$transaction([
+          prisma.feeding.update({
+            where: { id: feedingId },
+            data: { status: FeedingStatus.FAILED },
+          }),
+          prisma.activeFeeding.delete({
+            where: { horseId },
+          }),
+        ]);
 
         await broadcastStatus({
           type: "FEEDING_STATUS",
@@ -139,8 +163,7 @@ async function handleFeederEvent(
       }
     }
   } catch (err) {
-    console.error("Broadcast error", err);
-    return;
+    console.error("Feeder event handling error", err);
   }
 }
 
@@ -166,7 +189,6 @@ async function handleCameraEvent(
     }
 
     // 2) Find the horse that uses this camera (minimal)
-    // Because Horse.cameraId is @unique, there will be at most one.
     const horse = await prisma.horse.findFirst({
       where: { cameraId: device.id, id: msg.horseId },
       select: { id: true },
@@ -216,6 +238,6 @@ async function handleCameraEvent(
       }
     }
   } catch (error) {
-    console.error("BroadCast Error ", error);
+    console.error("BroadCasttttttttttt Error ", error);
   }
 }

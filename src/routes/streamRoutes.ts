@@ -1,31 +1,13 @@
-// src/routes/streamRoutes.ts - EXACT Python Flask replica
+// src/routes/streamRoutes.ts - Reads from minimal Map
 import express, { type Request, type Response, Router } from "express";
-import fs from "fs/promises";
 import path from "path";
-import sharp from "sharp"; // npm i sharp
+import sharp from "sharp";
 import { validateStreamToken } from "../services/streamService.js";
+import { getLatestFrame } from "../ws/cameraStreaming.js";
 
 const router: Router = express.Router();
-
-const TEMP_IMAGE_PATH = path.resolve("./temp/current_frame.jpg");
 const PLACEHOLDER_PATH = path.resolve("./temp/placeholder.jpg");
 
-const TEMP_DIR = path.dirname(TEMP_IMAGE_PATH)!;
-import("fs").then((fsSync) => {
-  if (!fsSync.existsSync(TEMP_DIR)) {
-    fsSync.mkdirSync(TEMP_DIR, { recursive: true });
-  }
-});
-
-interface ActiveStream {
-  res: Response;
-  frameCount: number;
-  closed: boolean;
-}
-
-const activeStreams = new Map<string, ActiveStream>();
-
-// MJPEG frame generator (EXACT Python replica)
 function createMjpegFrame(frameBytes: Buffer): Buffer {
   return Buffer.concat([
     Buffer.from("--frame\r\n"),
@@ -35,34 +17,30 @@ function createMjpegFrame(frameBytes: Buffer): Buffer {
   ]);
 }
 
-// Process image like Python PIL (validate + re-encode)
-async function processImage(imagePath: string): Promise<Buffer> {
+async function processImage(imageBuffer: Buffer | null): Promise<Buffer> {
   try {
-    // Sharp = PIL equivalent (validate + JPEG re-encode)
-    return await sharp(imagePath)
-      .jpeg({ quality: 85, mozjpeg: true }) // Fresh JPEG
+    if (!imageBuffer) {
+      return await sharp(PLACEHOLDER_PATH).jpeg({ quality: 85 }).toBuffer();
+    }
+    return await sharp(imageBuffer)
+      .jpeg({ quality: 85, mozjpeg: true })
       .toBuffer();
   } catch (error) {
-    console.error("❌ Invalid image:", error);
-    // Fallback: process placeholder exactly like Python
+    console.error("Invalid image:", error);
+
     return await sharp(PLACEHOLDER_PATH).jpeg({ quality: 85 }).toBuffer();
   }
 }
 
-router.get("/live/:token", async (req: Request, res: Response) => {
+router.get("/:token", async (req: Request, res: Response) => {
   const { token } = req.params as { token: string };
 
-  // Validate token
-  const feeder = await validateStreamToken(token);
-  if (!feeder) {
+  const streamData = await validateStreamToken(token);
+
+  if (!streamData) {
     return res.status(410).json({ error: "Stream expired" });
   }
 
-  if (activeStreams.has(token)) {
-    return res.status(409).json({ error: "Stream active" });
-  }
-
-  // MJPEG headers (exact)
   res.writeHead(200, {
     "Content-Type": "multipart/x-mixed-replace; boundary=frame",
     Connection: "close",
@@ -70,60 +48,49 @@ router.get("/live/:token", async (req: Request, res: Response) => {
     "X-Accel-Buffering": "no",
   });
 
-  const streamData: ActiveStream = {
-    res,
-    frameCount: 0,
-    closed: false,
-  };
-  activeStreams.set(token, streamData);
+  let frameCount = 0;
+  let isActive = true;
 
   const sendFrameLoop = async () => {
-    if (streamData.closed || res.destroyed || res.writableEnded) return;
+    if (!isActive || res.destroyed || res.writableEnded) return;
 
     try {
-      // EXACT Python logic: try main → fallback placeholder
-      const frameBytes = await processImage(TEMP_IMAGE_PATH);
+      // Read from memory (minimal Map)
+      const latestFrame = getLatestFrame(streamData.horseId!);
+
+      const frameBytes = await processImage(latestFrame);
       const mjpegFrame = createMjpegFrame(frameBytes);
 
       if (res.write(mjpegFrame)) {
-        streamData.frameCount++;
-        if (streamData.frameCount % 100 === 0) {
-          console.log(`📹 ${token}: ${streamData.frameCount} frames`);
+        frameCount++;
+        if (frameCount % 100 === 0) {
+          console.log(`Stream ${token}: ${frameCount} frames sent`);
         }
       } else {
-        // Backpressure
         res.once("drain", sendFrameLoop);
         return;
       }
     } catch (error) {
-      console.error(`❌ ${token}:`, error);
+      console.error(`Stream error ${token}:`, error);
     }
 
-    // Continue (Python's `continue`)
     setImmediate(sendFrameLoop);
   };
 
   const cleanup = () => {
-    if (streamData.closed) return;
-    streamData.closed = true;
-    activeStreams.delete(token);
+    if (!isActive) return;
+    isActive = false;
 
     if (!res.destroyed && !res.writableEnded) {
       res.end();
     }
-    console.log(`🔌 ${token} closed: ${streamData.frameCount} frames`);
+    console.log(`Stream ${token} closed: ${frameCount} frames sent`);
   };
 
-  // Cleanup handlers
   req.on("close", cleanup);
   req.on("error", cleanup);
 
-  // Start loop (Python's `while True`)
   sendFrameLoop();
-});
-
-router.get("/health", (req: Request, res: Response) => {
-  res.json({ activeStreams: activeStreams.size });
 });
 
 export default router;

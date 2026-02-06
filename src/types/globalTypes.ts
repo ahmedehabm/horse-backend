@@ -39,12 +39,27 @@ export interface CameraEventMessage {
  * Feed command payload sent to devices
  *  زايحه للجهاز
  */
-export interface CommandPayload {
-  type: "FEED_COMMAND" | "STREAM_COMMAND";
-  feedingId?: string; // in case of feeding
-  targetKg?: number; //in case of feeding
-  horseId: string; //this is a must in both
+
+export interface FeedCommand {
+  type: "FEED_COMMAND";
+  feedingId: string;
+  targetKg: number;
+  horseId: string;
 }
+
+/**
+ * TO DEVICE
+ * Command sent to camera devices
+ */
+export interface StreamCommand {
+  type: "STREAM_START_COMMAND" | "STREAM_STOP_COMMAND";
+  horseId: string;
+}
+
+/**
+ * Union type for all MQTT commands
+ */
+export type CommandPayload = FeedCommand | StreamCommand;
 
 /**
  * Callback for handling incoming device events

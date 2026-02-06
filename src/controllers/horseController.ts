@@ -109,7 +109,14 @@ export const getMyHorses = async (
       lastFeedAt: true,
       feeder: {
         select: {
+          id: true,
           feederType: true,
+          thingName: true,
+        },
+      },
+      camera: {
+        select: {
+          id: true,
           thingName: true,
         },
       },
@@ -618,3 +625,81 @@ export const getFeedingActiveStatus = async (
     next(error);
   }
 };
+
+export async function getHorsesStats(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const userId = req.user.id;
+
+    // 1) Active feedings for ALL horses owned by this user (batch)
+    const activeFeedings = await prisma.activeFeeding.findMany({
+      where: {
+        horse: { ownerId: userId },
+      },
+      select: {
+        feedingId: true,
+        status: true,
+        horseId: true,
+      },
+    });
+
+    // 2) Active stream (only one per user)
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { activeStreamHorseId: true },
+    });
+
+    //this means that stream is started already
+    let activeStream: null | {
+      horseId: string;
+      status: "STARTED" | "PENDING" | "IDLE";
+    } = null;
+
+    if (user?.activeStreamHorseId) {
+      const horse = await prisma.horse.findFirst({
+        where: { id: user.activeStreamHorseId, ownerId: userId },
+        select: {
+          id: true,
+          camera: { select: { streamTokenIsValid: true, streamToken: true } },
+        },
+      });
+
+      if (!horse) {
+        // await prisma.user.update({
+        //   where: { id: userId },
+        //   data: { activeStreamHorseId: null },
+        // });
+
+        activeStream = null;
+
+        //
+      } else if (horse.camera?.streamTokenIsValid && horse.camera.streamToken) {
+        activeStream = { horseId: horse.id, status: "STARTED" };
+
+        //
+      } else {
+        activeStream = { horseId: horse.id, status: "PENDING" };
+
+        //
+      }
+    }
+
+    // 3) Send response
+    res.status(200).json({
+      status: "success",
+      data: {
+        activeFeedings: activeFeedings.map((f) => ({
+          horseId: f.horseId,
+          feedingId: f.feedingId,
+          status: f.status,
+        })),
+        activeStream,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
