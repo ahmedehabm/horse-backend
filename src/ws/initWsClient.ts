@@ -3,6 +3,7 @@ import type { Application } from "express";
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { setupClientWs } from "./clientWs.js";
+import { setupCameraWs } from "./cameraWs.js";
 
 export function initWsClient(app: Application): {
   httpServer: http.Server;
@@ -22,8 +23,10 @@ export function initWsClient(app: Application): {
     connectTimeout: 45000,
   });
 
-  //  Setup Socket.IO handlers from clientWs.ts
+  //  Setup Socket.IO handlers from
   setupClientWs(io);
+
+  setupCameraWs(io);
 
   return { httpServer, io };
 }

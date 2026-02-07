@@ -19,7 +19,6 @@ import {
   handleLogout,
   initializeWeightStreaming,
 } from "./weightStreaming.js";
-import { initializeCameraStreaming } from "./cameraStreaming.js";
 
 /**
  * Store Socket.IO server instance globally for broadcasting
@@ -70,8 +69,6 @@ export function setupClientWs(io: SocketIOServer): void {
     console.log(`Client WS connected: ${userId} socket=${socket.id}`);
 
     await initializeWeightStreaming(socket, userId, io);
-
-    await initializeCameraStreaming(socket, userId);
 
     socket.emit("AUTH_SUCCESS", {
       userId,

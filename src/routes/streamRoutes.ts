@@ -1,12 +1,24 @@
-// src/routes/streamRoutes.ts - Reads from minimal Map
+// src/routes/streamRoutes.ts - Optimized streaming
 import express, { type Request, type Response, Router } from "express";
 import path from "path";
-import sharp from "sharp";
+import fs from "fs/promises";
 import { validateStreamToken } from "../services/streamService.js";
-import { getLatestFrame } from "../ws/cameraStreaming.js";
+import { getLatestFrame } from "../ws/cameraWs.js";
+// import { getLatestFrame } from "../ws/cameraStreaming.js";
 
 const router: Router = express.Router();
 const PLACEHOLDER_PATH = path.resolve("./temp/placeholder.jpg");
+
+//  Pre-load placeholder once at startup
+let placeholderBuffer: Buffer | null = null;
+
+(async () => {
+  try {
+    placeholderBuffer = await fs.readFile(PLACEHOLDER_PATH);
+  } catch (error) {
+    console.error("❌ Failed to load placeholder:", error);
+  }
+})();
 
 function createMjpegFrame(frameBytes: Buffer): Buffer {
   return Buffer.concat([
@@ -17,26 +29,9 @@ function createMjpegFrame(frameBytes: Buffer): Buffer {
   ]);
 }
 
-async function processImage(imageBuffer: Buffer | null): Promise<Buffer> {
-  try {
-    if (!imageBuffer) {
-      return await sharp(PLACEHOLDER_PATH).jpeg({ quality: 85 }).toBuffer();
-    }
-    return await sharp(imageBuffer)
-      .jpeg({ quality: 85, mozjpeg: true })
-      .toBuffer();
-  } catch (error) {
-    console.error("Invalid image:", error);
-
-    return await sharp(PLACEHOLDER_PATH).jpeg({ quality: 85 }).toBuffer();
-  }
-}
-
 router.get("/:token", async (req: Request, res: Response) => {
   const { token } = req.params as { token: string };
-
   const streamData = await validateStreamToken(token);
-
   if (!streamData) {
     return res.status(410).json({ error: "Stream expired" });
   }
@@ -51,46 +46,57 @@ router.get("/:token", async (req: Request, res: Response) => {
   let frameCount = 0;
   let isActive = true;
 
-  const sendFrameLoop = async () => {
-    if (!isActive || res.destroyed || res.writableEnded) return;
+  // ✅ Use setInterval instead of setImmediate
+  const intervalId = setInterval(() => {
+    if (!isActive || res.destroyed || res.writableEnded) {
+      clearInterval(intervalId);
+      return;
+    }
 
     try {
-      // Read from memory (minimal Map)
+      // Get latest frame from memory (already JPEG from ESP32)
       const latestFrame = getLatestFrame(streamData.horseId!);
 
-      const frameBytes = await processImage(latestFrame);
+      //  Use frame directly (no Sharp re-encoding!)
+      const frameBytes = latestFrame || placeholderBuffer;
+
+      if (!frameBytes) {
+        // No frame available, skip this iteration
+        return;
+      }
+
       const mjpegFrame = createMjpegFrame(frameBytes);
 
       if (res.write(mjpegFrame)) {
         frameCount++;
         if (frameCount % 100 === 0) {
-          console.log(`Stream ${token}: ${frameCount} frames sent`);
+          console.log(`📹 Stream: ${frameCount} frames sent`);
         }
       } else {
-        res.once("drain", sendFrameLoop);
-        return;
+        // Backpressure - pause interval temporarily
+        res.once("drain", () => {
+          // Resume on next interval tick
+        });
       }
     } catch (error) {
-      console.error(`Stream error ${token}:`, error);
+      console.error("❌ Stream error:", error);
     }
-
-    setImmediate(sendFrameLoop);
-  };
+  }, 33); //  33ms = ~30 FPS
 
   const cleanup = () => {
     if (!isActive) return;
     isActive = false;
 
+    clearInterval(intervalId); //  Stop the interval
+
     if (!res.destroyed && !res.writableEnded) {
       res.end();
     }
-    console.log(`Stream ${token} closed: ${frameCount} frames sent`);
+    console.log(`🔌 Stream closed: ${frameCount} frames sent`);
   };
 
   req.on("close", cleanup);
   req.on("error", cleanup);
-
-  sendFrameLoop();
 });
 
 export default router;

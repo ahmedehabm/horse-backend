@@ -8,8 +8,6 @@ config({
   path: process.cwd() + "/config.env",
 });
 
-console.log("ENV FILE LOADED:", process.env.DATABASE_URL);
-
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
