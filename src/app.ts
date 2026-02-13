@@ -11,7 +11,8 @@ import { prisma } from "./lib/prisma.js";
 import streamRoutes from "./routes/streamRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import horseRoutes from "./routes/horseRoutes.js";
-// import testRoutes from "./routes/testRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
+import deviceRoutes from "./routes/deviceRoutes.js";
 
 // WebSocket setup
 
@@ -79,8 +80,8 @@ app.use(protect);
 
 app.use("/stream", streamRoutes);
 app.use("/api/v1/horses", horseRoutes);
-
-// app.use("/api/v1/feeders", feederRoutes);
+app.use("/api/v1/users", userRoutes);
+app.use("/api/v1/devices", deviceRoutes);
 
 //no need right now
 // app.use("/api/v1/feedings", feedingRoutes);

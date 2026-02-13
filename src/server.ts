@@ -12,11 +12,14 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 
+import "./services/cronJob.js";
 import app, { prisma } from "./app.js";
 import { setupCameraWs } from "./ws/cameraWs.js";
 import { setupClientWs } from "./ws/clientWs.js";
 import { Server as SocketIOServer } from "socket.io";
 import { WebSocketServer } from "ws";
+import { initAwsIot } from "./iot/initAwsIot.js";
+import { handleDeviceEvent } from "./iot/deviceEventHandler.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -42,6 +45,7 @@ connectDatabase().then(() => {
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: 10 * 1024 * 1024,
+    perMessageDeflate: false,
   });
 
   setupCameraWs(wss);
@@ -76,6 +80,7 @@ connectDatabase().then(() => {
   // 5. Start server
   const server = httpServer.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`\n🚀 Server running on port ${PORT}`);
+    // initAwsIot(handleDeviceEvent);
   });
 
   process.on("unhandledRejection", (err: any) => {

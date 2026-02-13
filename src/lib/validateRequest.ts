@@ -4,11 +4,14 @@ import type { ZodObject } from "zod";
 import AppError from "../utils/appError.js";
 
 export const validateRequest = (schema: ZodObject) => {
-  return async (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, _res: Response, next: NextFunction) => {
     try {
-      await schema.parseAsync(req.body);
+      console.log("body", req.body);
+      req.body = await schema.parseAsync(req.body);
+
       next();
     } catch (error: any) {
+      console.log(error);
       if (error.name === "ZodError") {
         const messageRegex = /"message":\s*"([^"]+)"/g;
         const messages: string[] = [];

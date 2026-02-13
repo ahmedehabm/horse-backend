@@ -7,6 +7,7 @@ import {
   updatePassword,
   logout,
   getMe,
+  restrictTo,
 } from "../controllers/authController.js";
 import { validateRequest } from "../lib/validateRequest.js";
 import {
@@ -17,11 +18,16 @@ import {
 
 const router = express.Router();
 
-// ✅ PUBLIC ROUTES FIRST (no protect)
-router.post("/signup", validateRequest(userSignupSchema), signup);
+// PUBLIC ROUTES FIRST (no protect)
 router.post("/login", validateRequest(userLoginSchema), login);
 
-// ✅ PROTECTED ROUTES LAST (with protect)
+// PROTECTED ROUTES LAST (with protect)
+router.post(
+  "/signup",
+  restrictTo("ADMIN"),
+  validateRequest(userSignupSchema),
+  signup,
+);
 router.get("/me", protect, getMe);
 router.get("/logout", protect, logout);
 router.post(

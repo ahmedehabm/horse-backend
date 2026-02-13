@@ -1,9 +1,7 @@
-// src/lib/prisma.ts - SINGLE INSTANCE FOR YOUR ENTIRE APP
+// src/lib/prisma.ts
 import { PrismaClient } from "@prisma/client";
-
 import { config } from "dotenv";
 
-// 1. LOAD ENVIRONMENT VARIABLES FIRST
 config({
   path: process.cwd() + "/config.env",
 });
@@ -12,14 +10,28 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-// Singleton pattern - ONE instance everywhere
-export const prisma = globalForPrisma.prisma ?? new PrismaClient();
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log:
+      process.env.NODE_ENV === "development"
+        ? ["query", "error", "warn"]
+        : ["error"],
+  });
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
 
-// Graceful shutdown for production
+// Graceful shutdown
+const shutdown = async () => {
+  console.log("🔌 Disconnecting Prisma...");
+  await prisma.$disconnect();
+  process.exit(0);
+};
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
 process.on("beforeExit", async () => {
   await prisma.$disconnect();
 });

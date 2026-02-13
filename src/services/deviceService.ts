@@ -325,3 +325,98 @@ export async function stopStreaming(horseId: string, userId: string) {
 
   return { horse: result.horse, device: result.camera };
 }
+
+export async function startScheduledFeeding(
+  deviceId: string,
+  timeSlot: "morning" | "day" | "night" = "morning",
+) {
+  const result = await prisma.$transaction(async (tx) => {
+    // 1) Get the device with its assigned horse
+    const device = (await tx.device.findUnique({
+      where: { id: deviceId, feederType: "SCHEDULED" },
+      select: {
+        id: true,
+        thingName: true,
+        scheduledAmountKg: true,
+        horsesAsFeeder: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    })) as any;
+
+    if (!device) {
+      throw new AppError("Device not found or not a scheduled feeder", 404);
+    }
+
+    // horsesAsFeeder is an array, get the first one
+    const horse = device.horsesAsFeeder[0];
+
+    if (!horse) {
+      throw new AppError("No horse assigned to this feeder", 404);
+    }
+
+    const amountKg = Number(device.scheduledAmountKg || 2.0);
+
+    // 2) Block if active feeding exists
+    const activeFeeding = await tx.activeFeeding.findUnique({
+      where: { horseId: horse.id },
+    });
+
+    if (activeFeeding) {
+      throw new AppError(
+        `Feeding already in progress (${activeFeeding.status})`,
+        409,
+      );
+    }
+
+    // 3) Create Feeding
+    const feeding = await tx.feeding.create({
+      data: {
+        horseId: horse.id,
+        deviceId: device.id,
+        requestedKg: amountKg,
+        status: FeedingStatus.PENDING,
+        isScheduled: true,
+        timeSlot,
+      },
+      select: { id: true, horseId: true, deviceId: true, status: true },
+    });
+
+    // 4) Create active snapshot
+    await tx.activeFeeding.create({
+      data: {
+        horseId: horse.id,
+        deviceId: device.id,
+        feedingId: feeding.id,
+        status: FeedingStatus.PENDING,
+        requestedKg: amountKg,
+      },
+    });
+
+    return { feeding, horse, feeder: device };
+  });
+
+  // Broadcast + IoT
+  await broadcastStatus({
+    type: "FEEDING_STATUS",
+    status: "PENDING",
+    feedingId: result.feeding.id,
+    horseId: result.horse.id,
+  });
+
+  await publishFeedCommand(result.feeder.thingName, {
+    type: "FEED_COMMAND",
+    feedingId: result.feeding.id,
+    targetKg: result.feeder.scheduledAmountKg || 2.0,
+    horseId: result.horse.id,
+  });
+
+  console.log(
+    `🕐 Scheduled ${timeSlot} feed: ${result.horse.name} (${result.feeder.scheduledAmountKg}kg)`,
+  );
+
+  return result;
+}

@@ -325,7 +325,6 @@ export async function publishWeightStreamStartMany(
     thingNames.map((thingName) =>
       publishFeederWeightCommand(thingName, {
         type: "WEIGHT_STREAM_START",
-        thingName,
       } as any),
     ),
   );

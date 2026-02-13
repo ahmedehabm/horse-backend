@@ -33,7 +33,7 @@ async function main() {
   const adminUser = await prisma.user.create({
     data: {
       name: "Admin User",
-      email: "admin@horsefeeder.com",
+      username: "admin@horsefeeder.com",
       password: hashedPassword,
       role: Role.ADMIN,
     },
@@ -42,7 +42,7 @@ async function main() {
   const user1 = await prisma.user.create({
     data: {
       name: "John Smith",
-      email: "john@example.com",
+      username: "john@example.com",
       password: hashedPassword,
       role: Role.USER,
     },
@@ -51,7 +51,7 @@ async function main() {
   const user2 = await prisma.user.create({
     data: {
       name: "Sarah Johnson",
-      email: "sarah@example.com",
+      username: "sarah@example.com",
       password: hashedPassword,
       role: Role.USER,
     },
@@ -60,7 +60,7 @@ async function main() {
   const user3 = await prisma.user.create({
     data: {
       name: "Michael Brown",
-      email: "michael@example.com",
+      username: "michael@example.com",
       password: hashedPassword,
       role: Role.USER,
     },
@@ -77,6 +77,7 @@ async function main() {
     data: {
       deviceType: DeviceType.FEEDER,
       thingName: "FEEDER-BELLA-001",
+      thingLabel: "feeder bella",
       location: "North Barn - Stall 1",
       feederType: FeederType.SCHEDULED,
       morningTime: "07:00",
@@ -89,6 +90,7 @@ async function main() {
     data: {
       deviceType: DeviceType.FEEDER,
       thingName: "FEEDER-THUNDER-002",
+      thingLabel: "feeder thunder",
       location: "North Barn - Stall 2",
       feederType: FeederType.MANUAL,
     },
@@ -98,6 +100,7 @@ async function main() {
     data: {
       deviceType: DeviceType.FEEDER,
       thingName: "FEEDER-SPIRIT-003",
+      thingLabel: "feeder spirit",
       location: "South Barn - Stall 1",
       feederType: FeederType.SCHEDULED,
       morningTime: "06:30",
@@ -110,6 +113,7 @@ async function main() {
     data: {
       deviceType: DeviceType.FEEDER,
       thingName: "FEEDER-MIDNIGHT-004",
+      thingLabel: "feeder midnight",
       location: "South Barn - Stall 2",
       feederType: FeederType.MANUAL,
     },
@@ -119,6 +123,7 @@ async function main() {
     data: {
       deviceType: DeviceType.FEEDER,
       thingName: "FEEDER-STAR-005",
+      thingLabel: "feeder star",
       location: "Training Area - Bay 1",
       feederType: FeederType.SCHEDULED,
       morningTime: "07:30",
@@ -131,6 +136,7 @@ async function main() {
     data: {
       deviceType: DeviceType.FEEDER,
       thingName: "FEEDER-APOLLO-006",
+      thingLabel: "feeder apollo",
       location: "Training Area - Bay 2",
       feederType: FeederType.MANUAL,
     },
@@ -140,6 +146,7 @@ async function main() {
     data: {
       deviceType: DeviceType.FEEDER,
       thingName: "FEEDER-LUNA-007",
+      thingLabel: "feeder luna",
       location: "East Pasture - Shelter 1",
       feederType: FeederType.SCHEDULED,
       morningTime: "06:00",
@@ -159,6 +166,7 @@ async function main() {
     data: {
       deviceType: DeviceType.CAMERA,
       thingName: "CAMERA-BELLA-001",
+      thingLabel: "camera bella",
       location: "North Barn - Stall 1 Ceiling",
       streamToken: "cam-stream-token-001",
       streamTokenIsValid: true,
@@ -169,6 +177,7 @@ async function main() {
     data: {
       deviceType: DeviceType.CAMERA,
       thingName: "CAMERA-THUNDER-002",
+      thingLabel: "camera thunder",
       location: "North Barn - Stall 2 Ceiling",
       streamToken: "cam-stream-token-002",
       streamTokenIsValid: true,
@@ -179,6 +188,7 @@ async function main() {
     data: {
       deviceType: DeviceType.CAMERA,
       thingName: "CAMERA-SPIRIT-003",
+      thingLabel: "camera spirit",
       location: "South Barn - Stall 1 Corner",
       streamToken: "cam-stream-token-003",
       streamTokenIsValid: true,
@@ -189,6 +199,7 @@ async function main() {
     data: {
       deviceType: DeviceType.CAMERA,
       thingName: "CAMERA-MIDNIGHT-004",
+      thingLabel: "camera midnight",
       location: "South Barn - Stall 2 Corner",
       streamToken: "cam-stream-token-004",
       streamTokenIsValid: false, // Example: expired token
@@ -199,6 +210,7 @@ async function main() {
     data: {
       deviceType: DeviceType.CAMERA,
       thingName: "CAMERA-STAR-005",
+      thingLabel: "camera star",
       location: "Training Area - Bay 1 Wall",
       streamToken: "cam-stream-token-005",
       streamTokenIsValid: true,
@@ -209,6 +221,7 @@ async function main() {
     data: {
       deviceType: DeviceType.CAMERA,
       thingName: "CAMERA-APOLLO-006",
+      thingLabel: "camera apollo",
       location: "Training Area - Bay 2 Wall",
       streamToken: "cam-stream-token-006",
       streamTokenIsValid: true,
@@ -219,6 +232,7 @@ async function main() {
     data: {
       deviceType: DeviceType.CAMERA,
       thingName: "CAMERA-LUNA-007",
+      thingLabel: "camera luna",
       location: "East Pasture - Shelter 1 Entrance",
       streamToken: "cam-stream-token-007",
       streamTokenIsValid: true,
@@ -239,7 +253,7 @@ async function main() {
       breed: "Arabian",
       image: "https://images.unsplash.com/photo-1553284965-83fd3e82fa5a",
       location: "North Barn - Stall 1",
-      defaultAmountKg: 5.0,
+
       ownerId: user1.id,
       feederId: feeder1.id, // Feeder device
       cameraId: camera1.id, // Camera device
@@ -253,7 +267,7 @@ async function main() {
       breed: "Thoroughbred",
       image: "https://images.unsplash.com/photo-1551884831-bbf3cdc6469e",
       location: "North Barn - Stall 2",
-      defaultAmountKg: 6.5,
+
       ownerId: user1.id,
       feederId: feeder2.id,
       cameraId: camera2.id,
@@ -267,7 +281,7 @@ async function main() {
       breed: "Mustang",
       image: "https://images.unsplash.com/photo-1598978543601-d0141b3375e3",
       location: "South Barn - Stall 1",
-      defaultAmountKg: 5.5,
+
       ownerId: user2.id,
       feederId: feeder3.id,
       cameraId: camera3.id,
@@ -281,7 +295,7 @@ async function main() {
       breed: "Friesian",
       image: "https://images.unsplash.com/photo-1568572933382-74d440642117",
       location: "South Barn - Stall 2",
-      defaultAmountKg: 7.0,
+
       ownerId: user2.id,
       feederId: feeder4.id,
       cameraId: camera4.id,
@@ -295,7 +309,7 @@ async function main() {
       breed: "Quarter Horse",
       image: "https://images.unsplash.com/photo-1558873814-1da5a5c3e9fe",
       location: "Training Area - Bay 1",
-      defaultAmountKg: 5.0,
+
       ownerId: user3.id,
       feederId: feeder5.id,
       cameraId: camera5.id,
@@ -309,7 +323,7 @@ async function main() {
       breed: "Andalusian",
       image: "https://images.unsplash.com/photo-1609712412893-2488b1ab9675",
       location: "Training Area - Bay 2",
-      defaultAmountKg: 6.0,
+
       ownerId: user3.id,
       feederId: feeder6.id,
       cameraId: camera6.id,
@@ -323,7 +337,7 @@ async function main() {
       breed: "Paint Horse",
       image: "https://images.unsplash.com/photo-1574158622682-e40e69881006",
       location: "East Pasture - Shelter 1",
-      defaultAmountKg: 5.5,
+
       ownerId: user1.id,
       feederId: feeder7.id,
       cameraId: camera7.id,

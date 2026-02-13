@@ -233,16 +233,8 @@ export const createHorse = async (
   next: NextFunction,
 ) => {
   try {
-    const {
-      name,
-      image,
-      location,
-      breed,
-      defaultAmountKg,
-      feederId,
-      age,
-      cameraId,
-    } = req.body;
+    const { name, age, breed, location, image, feederId, cameraId, ownerId } =
+      req.body;
 
     // ✅ VALIDATION: Ensure feederId is a FEEDER device
     if (feederId) {
@@ -284,29 +276,11 @@ export const createHorse = async (
         breed,
         cameraId,
         feederId,
-        defaultAmountKg: defaultAmountKg || 2.5,
         age,
+        ownerId,
       },
       include: {
         owner: { select: { id: true, name: true } },
-        feeder: {
-          select: {
-            id: true,
-            deviceType: true,
-            thingName: true,
-            location: true,
-            feederType: true,
-          },
-        },
-        camera: {
-          select: {
-            id: true,
-            deviceType: true,
-            thingName: true,
-            location: true,
-            streamToken: true,
-          },
-        },
       },
     });
 
@@ -335,16 +309,7 @@ export const updateHorse = async (
       return next(new AppError("No horse found with that ID", 404));
     }
 
-    const {
-      name,
-      image,
-      location,
-      breed,
-      defaultAmountKg,
-      feederId,
-      age,
-      cameraId,
-    } = req.body;
+    const { name, image, location, breed, feederId, age, cameraId } = req.body;
 
     // ✅ VALIDATION: If updating feederId, ensure it's a FEEDER device
     if (feederId && feederId !== horse.feederId) {
@@ -387,7 +352,6 @@ export const updateHorse = async (
         image,
         breed,
         age,
-        defaultAmountKg,
         feederId,
         updatedAt: new Date(),
       },
@@ -559,7 +523,7 @@ export const bulkAssignHorsesToUser = async (
     const horsesWithOwner = await prisma.horse.findMany({
       where: { id: { in: horseIds } },
       include: {
-        owner: { select: { id: true, name: true, email: true } },
+        owner: { select: { id: true, name: true, username: true } },
         feeder: true,
       },
     });

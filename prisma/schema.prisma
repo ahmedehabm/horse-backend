@@ -41,7 +41,7 @@ enum FeedingStatus {
 model User {
   id                   String    @id @default(uuid())
   name                 String?
-  email                String    @unique
+  username                String    @unique
   password             String
   passwordChangedAt    DateTime?
   passwordResetToken   String?   @unique
@@ -55,7 +55,7 @@ model User {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  @@index([email])
+  @@index([username])
   @@index([passwordResetToken])
 }
 
@@ -65,7 +65,8 @@ model User {
 model Device {
   id                  String      @id @default(uuid())
   deviceType           DeviceType
-  thingName            String      @unique
+  thingLabel           String      @unique
+  thingName            String      @unique @default(cuid())
   location             String
 
   // FEEDER-specific
@@ -73,9 +74,10 @@ model Device {
   morningTime          String?
   dayTime              String?
   nightTime            String?
+  scheduledAmountKg    Float?
 
   // CAMERA-specific
-  streamToken          String?      @unique @default(cuid())
+  streamToken          String?      @unique
   streamTokenIsValid   Boolean?
 
   // Relations
@@ -112,7 +114,6 @@ model Horse {
   cameraId       String?       @unique
   camera         Device?       @relation("HorseCamera", fields: [cameraId], references: [id])
 
-  defaultAmountKg Float?
   lastFeedAt      DateTime?
 
   feedings        Feeding[]
