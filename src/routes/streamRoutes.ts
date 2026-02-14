@@ -45,7 +45,7 @@ router.get("/:token", async (req: Request, res: Response) => {
   let frameCount = 0;
   let isActive = true;
 
-  // ✅ Use setInterval instead of setImmediate
+  //  Use setInterval instead of setImmediate
   const intervalId = setInterval(() => {
     if (!isActive || res.destroyed || res.writableEnded) {
       clearInterval(intervalId);

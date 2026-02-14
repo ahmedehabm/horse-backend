@@ -1,7 +1,8 @@
 // src/controllers/deviceController.ts
 import type { Request, Response, NextFunction } from "express";
 import { Prisma, DeviceType, FeederType } from "@prisma/client";
-import { prisma } from "../app.js";
+import { prisma } from "../lib/prisma.js";
+import AppError from "../utils/appError.js";
 
 const toBool = (v: unknown) => String(v).toLowerCase() === "true";
 const toInt = (v: unknown, fallback: number) => {
@@ -235,7 +236,6 @@ export const createDevice = async (
       nightTime,
     } = req.body;
 
-    // Extra safety: ignore feeder-only fields when device is CAMERA
     const feederData =
       deviceType === "FEEDER"
         ? {
@@ -245,32 +245,76 @@ export const createDevice = async (
             nightTime: nightTime ?? null,
           }
         : {
-            // For CAMERA ensure feeder fields are not set (optional)
             feederType: FeederType.MANUAL,
             morningTime: null,
             dayTime: null,
             nightTime: null,
           };
 
-    //will be a transaction later
-    const device = await prisma.device.create({
-      data: {
-        thingLabel,
-        deviceType: deviceType as DeviceType,
-        location,
-        ...feederData,
-      },
-      select: {
-        id: true,
-        thingLabel: true,
-        thingName: true,
-        deviceType: true,
-      },
+    // Transaction: Create device + Get AWS certificates
+    const result = await prisma.$transaction(async (tx) => {
+      // 1) Create device in database
+      const device = await tx.device.create({
+        data: {
+          thingLabel,
+          deviceType: deviceType as DeviceType,
+          location,
+          ...feederData,
+        },
+        select: {
+          id: true,
+          thingLabel: true,
+          thingName: true,
+          deviceType: true,
+        },
+      });
+
+      // 2) Create AWS IoT Thing and get certificates
+      const awsResponse = (await fetch(
+        `${process.env.AWS_LAMBDA_URL}/provision-device`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            thingName: device.thingName,
+            deviceType: device.deviceType,
+          }),
+        },
+      )) as any;
+
+      if (!awsResponse.ok) {
+        const errorText = await awsResponse.text();
+        throw new AppError(
+          `AWS device creation failed: ${errorText}`,
+          awsResponse.status === 409 ? 409 : 502,
+        );
+      }
+
+      const awsData = await awsResponse.json();
+
+      if (!awsData.certificatePem || !awsData.privateKey) {
+        throw new AppError("AWS did not return required certificates", 502);
+      }
+
+      return {
+        device,
+        certificate: awsData.certificatePem,
+        privateKey: awsData.privateKey,
+      };
     });
 
+    // Return device info + certificates for download
     return res.status(201).json({
       status: "success",
-      data: { device },
+      data: {
+        device: result.device,
+        credentials: {
+          certificate: result.certificate,
+          privateKey: result.privateKey,
+        },
+      },
     });
   } catch (err: any) {
     next(err);

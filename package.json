@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon",
     "build": "tsc",
-    "start": "NODE_ENV=production node dist/server.js",
+    "start": "SET NODE_ENV=production && node dist/server.js",
     "prod": "npm run build&&npm run start",
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint src/**/*.ts"
@@ -16,10 +16,12 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@breejs/ts-worker": "^2.0.0",
     "@prisma/client": "^6.19.2",
     "@types/bcryptjs": "^2.4.6",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
+    "bree": "^9.2.8",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
@@ -31,7 +33,6 @@
     "mqtt": "^5.14.1",
     "node-cron": "^4.2.1",
     "prisma": "^6.19.2",
-    "sharp": "^0.34.5",
     "socket.io": "^4.8.3",
     "ws": "^8.19.0",
     "zod": "^4.3.6"

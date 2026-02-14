@@ -3,8 +3,8 @@ import { type NextFunction, type Request, type Response } from "express";
 import type { ExtendedError, Socket } from "socket.io";
 import AppError from "../utils/appError.js";
 import * as authServices from "../services/authServices.js";
-import { prisma } from "../app.js";
 import { Role, type Prisma } from "@prisma/client";
+import { prisma } from "../lib/prisma.js";
 
 export const signup = async (
   req: Request,

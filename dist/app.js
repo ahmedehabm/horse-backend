@@ -1,19 +1,17 @@
 // src/app.js
 import express from "express";
-import expressWs from "express-ws";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import cors from "cors";
-import { prisma } from "./lib/prisma.js";
 // // Routes
 import streamRoutes from "./routes/streamRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import horseRoutes from "./routes/horseRoutes.js";
-// import testRoutes from "./routes/testRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
+import deviceRoutes from "./routes/deviceRoutes.js";
 // WebSocket setup
-import { setupCameraWs } from "./ws/cameraWs.js";
 //Authentication
 import { protect } from "./controllers/authController.js";
 // Error handling
@@ -21,8 +19,7 @@ import AppError from "./utils/appError.js";
 import GlobalError from "./controllers/errorController.js";
 // Initialize Express app
 const app = express();
-// Initialize express-ws
-expressWs(app);
+console.log("NODE_ENV =", process.env.NODE_ENV);
 // 1) GLOBAL MIDDLEWARES
 // Security headers
 app.use(helmet());
@@ -43,9 +40,9 @@ app.use(cors({
     credentials: true, // allow cookies
 }));
 // Development logging
-if (process.env.NODE_ENV === "development") {
-    app.use(morgan("dev"));
-}
+// if (process.env.NODE_ENV === "development") {
+app.use(morgan("dev"));
+// }
 // Rate limiting
 // const limiter = rateLimit({
 //   limit: 100,
@@ -65,18 +62,15 @@ app.use("/api/v1/auth", authRoutes);
 app.use(protect);
 app.use("/stream", streamRoutes);
 app.use("/api/v1/horses", horseRoutes);
-// app.use("/api/v1/feeders", feederRoutes);
+app.use("/api/v1/users", userRoutes);
+app.use("/api/v1/devices", deviceRoutes);
 //no need right now
 // app.use("/api/v1/feedings", feedingRoutes);
-// 3) WEBSOCKET ENDPOINTS AFTER HTTPS
-// setupClientWs(app);
-// setupCameraWs(app);
 // 4) CATCH UNHANDLED ROUTES
 app.all("/{*any}", (req, res, next) => {
     next(new AppError(`cant find the requeted route ${req.originalUrl} on the server`, 404));
 });
 // // 5) GLOBAL ERROR HANDLER
 app.use(GlobalError);
-export { prisma };
 export default app;
 //# sourceMappingURL=app.js.map

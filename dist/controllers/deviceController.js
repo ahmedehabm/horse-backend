@@ -1,0 +1,231 @@
+import { Prisma, DeviceType, FeederType } from "@prisma/client";
+import { prisma } from "../lib/prisma.js";
+const toBool = (v) => String(v).toLowerCase() === "true";
+const toInt = (v, fallback) => {
+    const n = parseInt(String(v ?? ""), 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+/**
+ * 1) GET /api/v1/devices/options?type=FEEDER|CAMERA&unassigned=true
+ * Minimal select for select-options (id + label + thingName)
+ */
+export const getDeviceOptions = async (req, res, next) => {
+    try {
+        const type = String(req.query.type || "").toUpperCase();
+        if (type !== "FEEDER" && type !== "CAMERA") {
+            return res.status(400).json({
+                status: "fail",
+                message: "Query param 'type' must be FEEDER or CAMERA",
+            });
+        }
+        const unassigned = toBool(req.query.unassigned);
+        const where = {
+            deviceType: type,
+            ...(unassigned
+                ? type === "FEEDER"
+                    ? { horsesAsFeeder: { none: {} } }
+                    : { horsesAsCamera: { none: {} } }
+                : {}),
+        };
+        const devices = await prisma.device.findMany({
+            where,
+            orderBy: { createdAt: "desc" },
+            select: {
+                id: true,
+                thingLabel: true,
+            },
+        });
+        return res.status(200).json({
+            status: "success",
+            results: devices.length,
+            data: { devices },
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+/**
+ * 2) GET /api/v1/devices/my/feeders?page=1&limit=10
+ *
+ * If req.user.role === "ADMIN" => this route is not meant for him (403)
+ * else => use req.user.id and return feeders assigned to THIS user's horses
+ * (includes horse name so user can edit morning/day/night times)
+ */
+export const getMyFeeders = async (req, res, next) => {
+    try {
+        const user = req.user;
+        if (user.role === "ADMIN") {
+            return res.status(403).json({
+                status: "fail",
+                message: "Admins should not use this route",
+            });
+        }
+        const page = toInt(req.query.page, 1);
+        const limit = toInt(req.query.limit, 10);
+        const skip = (page - 1) * limit;
+        const where = {
+            deviceType: DeviceType.FEEDER,
+            horsesAsFeeder: {
+                some: { ownerId: user.id },
+            },
+        };
+        const [feeders, total] = await prisma.$transaction([
+            prisma.device.findMany({
+                where,
+                skip,
+                take: limit,
+                orderBy: { createdAt: "desc" },
+                select: {
+                    id: true,
+                    thingLabel: true,
+                    horsesAsFeeder: {
+                        take: 1,
+                        select: { id: true, name: true },
+                    },
+                },
+            }),
+            prisma.device.count({ where }),
+        ]);
+        const formatted = feeders.map((f) => ({
+            ...f,
+            horse: f.horsesAsFeeder[0] ?? null,
+            horsesAsFeeder: undefined,
+        }));
+        return res.status(200).json({
+            status: "success",
+            results: formatted.length,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+            data: { feeders: formatted },
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+/**
+ * 3) GET /api/v1/devices?type=FEEDER|CAMERA&page=1&limit=20
+ * Admin devices table with pagination + optional filters.
+ */
+export const getAllDevices = async (req, res, next) => {
+    try {
+        const page = toInt(req.query.page, 1);
+        const limit = toInt(req.query.limit, 20);
+        const skip = (page - 1) * limit;
+        const typeRaw = String(req.query.type || "").toUpperCase();
+        // Normalize "ALL" to empty string for easier handling
+        const type = typeRaw === "ALL" ? "" : typeRaw;
+        // Validate type - allow empty string or "ALL" for all devices
+        if (type && type !== "FEEDER" && type !== "CAMERA") {
+            return res.status(400).json({
+                status: "fail",
+                message: "Query param 'type' must be FEEDER, CAMERA, ALL, or omitted for all devices",
+            });
+        }
+        const [devices, total] = await prisma.$transaction([
+            prisma.device.findMany({
+                where: type ? { deviceType: type } : {},
+                skip,
+                take: limit,
+                orderBy: { createdAt: "desc" },
+                select: {
+                    id: true,
+                    thingLabel: true,
+                    deviceType: true,
+                    ...(type === "CAMERA" && {
+                        horsesAsCamera: {
+                            select: { name: true },
+                        },
+                    }),
+                    ...(type === "FEEDER" && {
+                        horsesAsFeeder: {
+                            select: { name: true },
+                        },
+                    }),
+                    ...(!type && {
+                        horsesAsCamera: {
+                            select: { name: true },
+                        },
+                        horsesAsFeeder: {
+                            select: { name: true },
+                        },
+                    }),
+                },
+            }),
+            prisma.device.count({
+                where: type ? { deviceType: type } : {},
+            }),
+        ]);
+        return res.status(200).json({
+            status: "success",
+            results: devices.length,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+            data: { devices },
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+/**
+ * POST /api/v1/devices
+ * Body:
+ *  - thingLabel (unique)
+ *  - deviceType: CAMERA | FEEDER
+ *  - location
+ *  - feederType/morningTime/dayTime/nightTime (only for FEEDER)
+ *
+ */
+export const createDevice = async (req, res, next) => {
+    try {
+        const { thingLabel, deviceType, location, feederType, morningTime, dayTime, nightTime, } = req.body;
+        // Extra safety: ignore feeder-only fields when device is CAMERA
+        const feederData = deviceType === "FEEDER"
+            ? {
+                feederType: (feederType ?? "MANUAL"),
+                morningTime: morningTime ?? null,
+                dayTime: dayTime ?? null,
+                nightTime: nightTime ?? null,
+            }
+            : {
+                // For CAMERA ensure feeder fields are not set (optional)
+                feederType: FeederType.MANUAL,
+                morningTime: null,
+                dayTime: null,
+                nightTime: null,
+            };
+        //will be a transaction later
+        const device = await prisma.device.create({
+            data: {
+                thingLabel,
+                deviceType: deviceType,
+                location,
+                ...feederData,
+            },
+            select: {
+                id: true,
+                thingLabel: true,
+                thingName: true,
+                deviceType: true,
+            },
+        });
+        return res.status(201).json({
+            status: "success",
+            data: { device },
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+//# sourceMappingURL=deviceController.js.map

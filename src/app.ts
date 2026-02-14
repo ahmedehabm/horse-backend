@@ -5,7 +5,6 @@ import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import cors from "cors";
-import { prisma } from "./lib/prisma.js";
 
 // // Routes
 import streamRoutes from "./routes/streamRoutes.js";
@@ -99,5 +98,4 @@ app.all("/{*any}", (req, res, next) => {
 // // 5) GLOBAL ERROR HANDLER
 app.use(GlobalError);
 
-export { prisma };
 export default app;

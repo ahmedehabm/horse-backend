@@ -4,7 +4,7 @@ import {} from "express";
 import { promisify } from "util";
 import bcrypt from "bcryptjs";
 import AppError from "../utils/appError.js";
-import { prisma } from "../app.js";
+import { prisma } from "../lib/prisma.js";
 export function signJWT(id) {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
         expiresIn: process.env.JWT_EXPIRES_IN || "90d",
@@ -31,18 +31,18 @@ export function createSendToken(user, statusCode, res) {
         expires: new Date(Date.now() +
             parseInt(process.env.JWT_COOKIE_EXPIRES_IN) * 24 * 60 * 60 * 1000),
         httpOnly: true,
-        secure: false,
-        sameSite: "lax",
+        secure: false, //will change
+        sameSite: "lax", //will change
     };
     res.cookie("jwt", token, cookieOptions);
     res.status(statusCode).json({
         status: "success",
-        token,
+        // token,
         data: {
             user: {
                 id: user.id,
                 name: user.name,
-                email: user.email,
+                username: user.username,
                 role: user.role,
             },
         },
@@ -54,10 +54,10 @@ export function createSendToken(user, statusCode, res) {
 export async function signup(userData) {
     // Check if email exists
     const existingUser = await prisma.user.findUnique({
-        where: { email: userData.email },
+        where: { username: userData.username },
     });
     if (existingUser) {
-        throw new AppError("Email already exists", 400);
+        throw new AppError("Username already exists", 400);
     }
     // Hash password
     const hashedPassword = await bcrypt.hash(userData.password, 12);
@@ -65,9 +65,15 @@ export async function signup(userData) {
     const newUser = await prisma.user.create({
         data: {
             name: userData.name,
-            email: userData.email,
+            username: userData.username,
             password: hashedPassword,
             role: "USER",
+        },
+        select: {
+            id: true,
+            name: true,
+            username: true,
+            role: true,
         },
     });
     return newUser;
@@ -75,14 +81,14 @@ export async function signup(userData) {
 /**
  * Login - validate credentials
  */
-export async function login(email, password) {
+export async function login(username, password) {
     // 1) Find user with password
     const user = await prisma.user.findUnique({
-        where: { email },
+        where: { username },
         select: {
             id: true,
             name: true,
-            email: true,
+            username: true,
             role: true,
             password: true,
             passwordChangedAt: true,

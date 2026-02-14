@@ -244,7 +244,6 @@ async function publishFeederWeightCommand(thingName, command) {
 export async function publishWeightStreamStartMany(thingNames) {
     await Promise.all(thingNames.map((thingName) => publishFeederWeightCommand(thingName, {
         type: "WEIGHT_STREAM_START",
-        thingName,
     })));
 }
 /**

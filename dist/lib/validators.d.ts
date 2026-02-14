@@ -1,12 +1,12 @@
 import { z } from "zod";
 export declare const userSignupSchema: z.ZodObject<{
     name: z.ZodString;
-    email: z.ZodString;
+    username: z.ZodString;
     password: z.ZodString;
     passwordConfirm: z.ZodString;
 }, z.core.$strip>;
 export declare const userLoginSchema: z.ZodObject<{
-    email: z.ZodString;
+    username: z.ZodString;
     password: z.ZodString;
 }, z.core.$strip>;
 export declare const updatePasswordSchema: z.ZodObject<{
@@ -17,25 +17,23 @@ export declare const updatePasswordSchema: z.ZodObject<{
 export declare const createHorseSchema: z.ZodObject<{
     name: z.ZodString;
     breed: z.ZodString;
-    age: z.ZodNumber;
+    age: z.ZodCoercedNumber<unknown>;
     location: z.ZodString;
     feederId: z.ZodOptional<z.ZodString>;
     cameraId: z.ZodOptional<z.ZodString>;
-    image: z.ZodOptional<z.ZodString>;
-    defaultAmountKg: z.ZodOptional<z.ZodNumber>;
+    ownerId: z.ZodString;
 }, z.core.$strip>;
 export declare const updateHorseSchema: z.ZodObject<{
     name: z.ZodOptional<z.ZodString>;
     breed: z.ZodOptional<z.ZodString>;
-    age: z.ZodOptional<z.ZodNumber>;
+    age: z.ZodOptional<z.ZodCoercedNumber<unknown>>;
     location: z.ZodOptional<z.ZodString>;
     feederId: z.ZodOptional<z.ZodOptional<z.ZodString>>;
     cameraId: z.ZodOptional<z.ZodOptional<z.ZodString>>;
-    image: z.ZodOptional<z.ZodOptional<z.ZodString>>;
-    defaultAmountKg: z.ZodOptional<z.ZodOptional<z.ZodNumber>>;
+    ownerId: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const createDeviceSchema: z.ZodObject<{
-    thingName: z.ZodString;
+    thingLabel: z.ZodString;
     deviceType: z.ZodEnum<{
         CAMERA: "CAMERA";
         FEEDER: "FEEDER";
@@ -50,7 +48,7 @@ export declare const createDeviceSchema: z.ZodObject<{
     nightTime: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const updateDeviceSchema: z.ZodObject<{
-    thingName: z.ZodOptional<z.ZodString>;
+    thingLabel: z.ZodOptional<z.ZodString>;
     deviceType: z.ZodOptional<z.ZodEnum<{
         CAMERA: "CAMERA";
         FEEDER: "FEEDER";

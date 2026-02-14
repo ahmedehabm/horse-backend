@@ -1,1 +1,0 @@
-{"version":3,"file":"cameraStreaming.d.ts","sourceRoot":"","sources":["../../src/ws/cameraStreaming.ts"],"names":[],"mappings":"AACA,OAAO,KAAK,EAA4B,MAAM,EAAE,MAAM,WAAW,CAAC;AAmFlE,wBAAgB,yBAAyB,CACvC,MAAM,EAAE,MAAM,EACd,MAAM,EAAE,MAAM,GACb,IAAI,CAyGN;AAGD,wBAAgB,cAAc,CAAC,OAAO,EAAE,MAAM,GAAG,MAAM,GAAG,IAAI,CAE7D;AAGD,wBAAgB,oBAAoB,IAAI,MAAM,CAE7C"}

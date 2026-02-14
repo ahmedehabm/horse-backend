@@ -2,18 +2,29 @@
 import {} from "express";
 import AppError from "../utils/appError.js";
 import * as authServices from "../services/authServices.js";
-import { prisma } from "../app.js";
+import { Role } from "@prisma/client";
+import { prisma } from "../lib/prisma.js";
 export const signup = async (req, res, next) => {
     try {
         // Create new user (role forced to "user")
         const newUser = await authServices.signup({
             name: req.body.name,
-            email: req.body.email,
+            username: req.body.username,
             password: req.body.password,
-            photo: req.body.photo,
         });
-        // Auto-login with JWT
-        authServices.createSendToken(newUser, 201, res);
+        // Auto-login with JWT ( if puclic )
+        // authServices.createSendToken(newUser, 201, res);
+        return res.status(201).json({
+            status: "success",
+            data: {
+                user: {
+                    id: newUser.id,
+                    name: newUser.name,
+                    username: newUser.username,
+                    role: newUser.role,
+                },
+            },
+        });
     }
     catch (error) {
         next(error);
@@ -21,9 +32,9 @@ export const signup = async (req, res, next) => {
 };
 export const login = async (req, res, next) => {
     try {
-        const { email, password } = req.body;
+        const { username, password } = req.body;
         // 1) Check user exists & password correct
-        const user = await authServices.login(email, password);
+        const user = await authServices.login(username, password);
         // 2) Send token
         authServices.createSendToken(user, 200, res);
     }
@@ -60,7 +71,7 @@ export const getMe = async (req, res, next) => {
             select: {
                 id: true,
                 name: true,
-                email: true,
+                username: true,
                 role: true,
             },
         });
@@ -166,6 +177,44 @@ export const protectWs = async (socket, next) => {
     }
     catch (error) {
         next(error);
+    }
+};
+export const getAllUsers = async (req, res, next) => {
+    try {
+        const page = Math.max(parseInt(String(req.query.page ?? "1"), 10) || 1, 1);
+        const limit = Math.max(parseInt(String(req.query.limit ?? "10"), 10) || 10, 1);
+        const skip = (page - 1) * limit;
+        const where = {
+            role: Role.USER,
+        };
+        const [users, total] = await prisma.$transaction([
+            prisma.user.findMany({
+                where,
+                skip,
+                take: limit,
+                orderBy: { createdAt: "desc" },
+                select: {
+                    id: true,
+                    name: true,
+                    username: true,
+                },
+            }),
+            prisma.user.count({ where }),
+        ]);
+        res.status(200).json({
+            status: "success",
+            results: users.length,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+            data: { users },
+        });
+    }
+    catch (err) {
+        next(err);
     }
 };
 //# sourceMappingURL=authController.js.map

@@ -2,7 +2,8 @@
 import { type NextFunction, type Request, type Response } from "express";
 
 import AppError from "../utils/appError.js";
-import { prisma } from "../app.js";
+
+import { prisma } from "../lib/prisma.js";
 
 import APIFeatures, { parseFields } from "../utils/apiFeatures.js";
 import { FeedingStatus, type Prisma } from "@prisma/client";

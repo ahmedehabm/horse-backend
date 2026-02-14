@@ -15,29 +15,21 @@ export declare function createSendToken(user: any, statusCode: number, res: Resp
  */
 export declare function signup(userData: {
     name: string;
-    email: string;
+    username: string;
     password: string;
-    photo?: string;
 }): Promise<{
     name: string | null;
     id: string;
-    email: string;
-    password: string;
-    passwordChangedAt: Date | null;
-    passwordResetToken: string | null;
-    passwordResetExpires: Date | null;
+    username: string;
     role: import("@prisma/client").$Enums.Role;
-    activeStreamHorseId: string | null;
-    createdAt: Date;
-    updatedAt: Date;
 }>;
 /**
  * Login - validate credentials
  */
-export declare function login(email: string, password: string): Promise<{
+export declare function login(username: string, password: string): Promise<{
     name: string | null;
     id: string;
-    email: string;
+    username: string;
     password: string;
     passwordChangedAt: Date | null;
     role: import("@prisma/client").$Enums.Role;

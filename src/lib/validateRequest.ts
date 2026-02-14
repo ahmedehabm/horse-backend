@@ -6,9 +6,7 @@ import AppError from "../utils/appError.js";
 export const validateRequest = (schema: ZodObject) => {
   return async (req: Request, _res: Response, next: NextFunction) => {
     try {
-      console.log("body", req.body);
       req.body = await schema.parseAsync(req.body);
-
       next();
     } catch (error: any) {
       console.log(error);

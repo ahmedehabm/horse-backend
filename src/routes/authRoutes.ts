@@ -24,6 +24,7 @@ router.post("/login", validateRequest(userLoginSchema), login);
 // PROTECTED ROUTES LAST (with protect)
 router.post(
   "/signup",
+  protect,
   restrictTo("ADMIN"),
   validateRequest(userSignupSchema),
   signup,

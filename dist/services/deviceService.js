@@ -5,6 +5,7 @@ import { publishFeedCommand, publishStreamCommand } from "../iot/initAwsIot.js";
 import AppError from "../utils/appError.js";
 import { broadcastStatus } from "../ws/clientWs.js";
 import { generateStreamToken, invalidateStreamToken } from "./streamService.js";
+import { parentPort } from "worker_threads";
 export async function startFeeding(horseId, amountKg, userId) {
     // Use transaction to prevent race conditions
     const result = await prisma.$transaction(async (tx) => {
@@ -76,71 +77,6 @@ export async function startFeeding(horseId, amountKg, userId) {
     console.log(`🐴 Feeding started: ${result.horse.name} (${amountKg}kg) via ${result.feeder.thingName}`);
     return result;
 }
-/**
- * Start camera streaming for horse
- */
-// OLD VERSIONS
-// export async function startStreaming(horseId: string, userId: string) {
-//   // 1) Minimal horse lookup + ownership check
-//   const horse = await prisma.horse.findFirst({
-//     where: { id: horseId, ownerId: userId },
-//     select: { id: true, name: true, cameraId: true },
-//   });
-//   if (!horse) {
-//     throw new AppError("Forbidden horseId", 403);
-//   }
-//   if (!horse.cameraId) {
-//     throw new AppError("Horse has no camera assigned", 404);
-//   }
-//   // 2) Minimal device lookup
-//   const camera = await prisma.device.findUnique({
-//     where: { id: horse.cameraId },
-//     select: { id: true, thingName: true, deviceType: true },
-//   });
-//   if (!camera) {
-//     throw new AppError("Camera device not found", 404);
-//   }
-//   if (camera.deviceType !== DeviceType.CAMERA) {
-//     throw new AppError("Assigned device is not a camera", 400);
-//   }
-//   // // Optional: immediately tell UI we're requesting stream
-//   // await broadcastFeedingStatus({
-//   //   type: "STREAM_STATUS",
-//   //   status: "PENDING",
-//   //   horseId: horse.id,
-//   //   streamUrl: "WORKING ON...",
-//   // });
-//   // 3) Send AWS IoT command
-//   await publishStreamCommand(camera.thingName, {
-//     type: "STREAM_START_COMMAND",
-//     horseId: horse.id,
-//   });
-//   return { horse, device: camera };
-// }
-// export async function stopStreaming(horseId: string, userId: string) {
-//   const horse = await prisma.horse.findFirst({
-//     where: { id: horseId, ownerId: userId },
-//     select: { id: true, name: true, cameraId: true },
-//   });
-//   if (!horse) throw new AppError("Forbidden horseId", 403);
-//   if (!horse.cameraId) throw new AppError("Horse has no camera assigned", 404);
-//   const camera = await prisma.device.findUnique({
-//     where: { id: horse.cameraId },
-//     select: { id: true, thingName: true, deviceType: true },
-//   });
-//   if (!camera) throw new AppError("Camera device not found", 404);
-//   if (camera.deviceType !== DeviceType.CAMERA) {
-//     throw new AppError("Assigned device is not a camera", 400);
-//   }
-//   // Send STOP command to AWS IoT (device firmware must support it)
-//   await publishStreamCommand(camera.thingName, {
-//     type: "STREAM_STOP_COMMAND",
-//     horseId: horse.id,
-//   });
-//   // Invalidate token so /stream/:token stops working
-//   await invalidateStreamToken(camera.id);
-//   return { horse, device: camera };
-// }
 export async function startStreaming(horseId, userId) {
     const result = await prisma.$transaction(async (tx) => {
         //  Single query with include (most performant for happy path which it is that you dont expect many errors )
@@ -262,5 +198,87 @@ export async function stopStreaming(horseId, userId) {
         horseId: result.horse.id,
     });
     return { horse: result.horse, device: result.camera };
+}
+export async function startScheduledFeeding(deviceId, timeSlot = "morning") {
+    const result = await prisma.$transaction(async (tx) => {
+        // 1) Get the device with its assigned horse
+        const device = (await tx.device.findUnique({
+            where: { id: deviceId, feederType: "SCHEDULED" },
+            select: {
+                id: true,
+                thingName: true,
+                scheduledAmountKg: true,
+                horsesAsFeeder: {
+                    select: {
+                        id: true,
+                        name: true,
+                    },
+                },
+            },
+        }));
+        if (!device) {
+            throw new AppError("Device not found or not a scheduled feeder", 404);
+        }
+        // horsesAsFeeder is an array, get the first one
+        const horse = device.horsesAsFeeder[0];
+        if (!horse) {
+            throw new AppError("No horse assigned to this feeder", 404);
+        }
+        const amountKg = Number(device.scheduledAmountKg || 2.0);
+        // 2) Block if active feeding exists
+        const activeFeeding = await tx.activeFeeding.findUnique({
+            where: { horseId: horse.id },
+        });
+        if (activeFeeding) {
+            throw new AppError(`Feeding already in progress (${activeFeeding.status})`, 409);
+        }
+        // 3) Create Feeding
+        const feeding = await tx.feeding.create({
+            data: {
+                horseId: horse.id,
+                deviceId: device.id,
+                requestedKg: amountKg,
+                status: FeedingStatus.PENDING,
+                isScheduled: true,
+                timeSlot,
+            },
+            select: { id: true, horseId: true, deviceId: true, status: true },
+        });
+        // 4) Create active snapshot
+        await tx.activeFeeding.create({
+            data: {
+                horseId: horse.id,
+                deviceId: device.id,
+                feedingId: feeding.id,
+                status: FeedingStatus.PENDING,
+                requestedKg: amountKg,
+            },
+        });
+        return { feeding, horse, feeder: device };
+    });
+    parentPort?.postMessage({
+        type: "SCHEDULED_FEED_STARTED",
+        payload: {
+            horseId: result.horse.id,
+            feedingId: result.feeding.id,
+            thingName: result.feeder.thingName,
+            targetKg: result.feeder.scheduledAmountKg || 2.0,
+        },
+    });
+    // // Broadcast + IoT
+    // await broadcastStatus({
+    //   type: "FEEDING_STATUS",
+    //   status: "PENDING",
+    //   feedingId: result.feeding.id,
+    //   horseId: result.horse.id,
+    // });
+    // await publishFeedCommand(result.feeder.thingName, {
+    //   type: "FEED_COMMAND",
+    //   feedingId: result.feeding.id,
+    //   targetKg: result.feeder.scheduledAmountKg || 2.0,
+    //   horseId: result.horse.id,
+    // });
+    console.log(`🕐 Scheduled ${timeSlot} feed: ${result.horse.name} (${result.feeder.scheduledAmountKg}kg)`);
+    return result;
 }
 //# sourceMappingURL=deviceService.js.map

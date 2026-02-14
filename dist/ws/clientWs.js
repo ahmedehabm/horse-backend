@@ -3,7 +3,6 @@ import { protectWs } from "../controllers/authController.js";
 import { startFeeding, startStreaming, stopStreaming, } from "../services/deviceService.js";
 import { FeedNowSchema, StartStreamSchema } from "../lib/validators.js";
 import { handleDisconnecting, handleLogout, initializeWeightStreaming, } from "./weightStreaming.js";
-import { initializeCameraStreaming } from "./cameraStreaming.js";
 /**
  * Store Socket.IO server instance globally for broadcasting
  */
@@ -42,7 +41,6 @@ export function setupClientWs(io) {
         socket.join(userId);
         console.log(`Client WS connected: ${userId} socket=${socket.id}`);
         await initializeWeightStreaming(socket, userId, io);
-        await initializeCameraStreaming(socket, userId);
         socket.emit("AUTH_SUCCESS", {
             userId,
             socketId: socket.id,

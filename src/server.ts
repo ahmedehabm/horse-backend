@@ -12,14 +12,16 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 
-import "./services/cronJob.js";
-import app, { prisma } from "./app.js";
+import app from "./app.js";
+import { prisma } from "./lib/prisma.js";
+
 import { setupCameraWs } from "./ws/cameraWs.js";
 import { setupClientWs } from "./ws/clientWs.js";
 import { Server as SocketIOServer } from "socket.io";
 import { WebSocketServer } from "ws";
 import { initAwsIot } from "./iot/initAwsIot.js";
 import { handleDeviceEvent } from "./iot/deviceEventHandler.js";
+import { startScheduler, stopScheduler } from "./scheduler/index.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -80,26 +82,56 @@ connectDatabase().then(() => {
   // 5. Start server
   const server = httpServer.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`\n🚀 Server running on port ${PORT}`);
+
+    // Initialize AWS IoT
     // initAwsIot(handleDeviceEvent);
+
+    // startScheduler();
   });
 
+  //  IMPROVED: Graceful shutdown handler
+  const shutdown = async (signal: string) => {
+    console.log(`\n👋 ${signal} received. Shutting down gracefully...`);
+
+    try {
+      // 1. Stop accepting new connections
+      server.close(() => {
+        console.log("✅ HTTP server closed");
+      });
+
+      // 2) stop schedualing
+
+      // await stopScheduler();
+
+      // 3. Close WebSocket connections
+      io.close(() => {
+        console.log("✅ Socket.IO closed");
+      });
+
+      wss.close(() => {
+        console.log("✅ Camera WebSocket closed");
+      });
+
+      // 4. Disconnect database
+      await prisma.$disconnect();
+      console.log("✅ Database disconnected");
+
+      console.log("💤 Graceful shutdown complete!");
+      process.exit(0);
+    } catch (err) {
+      console.error("❌ Error during shutdown:", err);
+      process.exit(1);
+    }
+  };
+
+  // Handle graceful shutdown
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+
+  // Handle unhandled rejections
   process.on("unhandledRejection", (err: any) => {
     console.log("💥 UNHANDLED REJECTION! Shutting down...");
     console.log(err.name, err.message);
-
-    server.close(() => {
-      prisma.$disconnect();
-      process.exit(1);
-    });
-  });
-
-  process.on("SIGTERM", () => {
-    console.log("👋 SIGTERM received. Shutting down gracefully...");
-    server.close(() => {
-      io.close();
-      wss.close();
-      prisma.$disconnect();
-      console.log("💤 Process terminated!");
-    });
+    shutdown("UNHANDLED_REJECTION");
   });
 });

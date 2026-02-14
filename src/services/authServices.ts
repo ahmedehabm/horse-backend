@@ -4,7 +4,7 @@ import { type Response } from "express";
 import { promisify } from "util";
 import bcrypt from "bcryptjs";
 import AppError from "../utils/appError.js";
-import { prisma } from "../app.js";
+import { prisma } from "../lib/prisma.js";
 
 interface JWTPayload {
   id: string;

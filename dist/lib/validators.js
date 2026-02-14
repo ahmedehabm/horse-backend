@@ -4,7 +4,7 @@ import { z } from "zod";
 export const userSignupSchema = z
     .object({
     name: z.string().min(2, "Name must be at least 2 characters").max(50),
-    email: z.string().email("Please provide a valid email").toLowerCase(),
+    username: z.string().min(3, "username must be at least 3 characters"),
     password: z
         .string()
         .min(8, "Password must be at least 8 characters")
@@ -16,7 +16,7 @@ export const userSignupSchema = z
     path: ["passwordConfirm"],
 });
 export const userLoginSchema = z.object({
-    email: z.string().email("Please provide a valid email"),
+    username: z.string().min(3, "username must be at least 3 characters"),
     password: z.string().min(1, "Password is required"),
 });
 export const updatePasswordSchema = z
@@ -34,32 +34,39 @@ export const updatePasswordSchema = z
 });
 // ========== HORSE VALIDATORS ==========
 export const createHorseSchema = z.object({
-    name: z.string().min(2, "Horse name must be at least 2 characters").max(50),
-    breed: z.string().min(2, "Breed must be at least 2 characters").max(50),
-    age: z
-        .number()
+    name: z
+        .string({ error: "NAMMM" })
+        .min(2, "Horse name must be at least 2 characters")
+        .max(50),
+    breed: z
+        .string({ error: "BReed" })
+        .min(2, "Breed must be at least 2 characters")
+        .max(50),
+    age: z.coerce
+        .number({ error: "AGE" })
         .int("Age must be an integer")
         .min(1, "Age must be 1 or greater")
         .max(40, "Age must be 40 or less"),
     location: z
-        .string()
+        .string({ error: "location" })
         .min(2, "Location must be at least 2 characters")
         .max(100),
     // ✅ NEW: REQUIRED feederId & cameraId (1:1 relationship)
-    feederId: z.string().uuid("Must be a valid Device UUID").optional(),
-    cameraId: z.string().uuid("Must be a valid Device UUID").optional(),
-    image: z.string().url("Must be a valid URL").optional(),
-    defaultAmountKg: z
-        .number()
-        .min(0.1, "Amount must be greater than 0.1kg")
-        .max(50, "Amount must be less than 50kg")
+    feederId: z
+        .string({ error: "fedeer" })
+        .uuid("Must be a valid Device UUID")
         .optional(),
+    cameraId: z
+        .string({ error: "camera" })
+        .uuid("Must be a valid Device UUID")
+        .optional(),
+    ownerId: z.string({ error: "ONWEr" }).uuid("Must be a valid Device UUID"),
+    // image: z.string().url("Must be a valid URL").optional(),
 });
 export const updateHorseSchema = createHorseSchema.partial();
 // ========== DEVICE VALIDATORS ==========
 export const createDeviceSchema = z.object({
-    // ✅ thingName replaces serialNumber (unique across all devices)
-    thingName: z
+    thingLabel: z
         .string()
         .min(5, "Device name must be at least 5 characters")
         .max(50),
@@ -68,7 +75,7 @@ export const createDeviceSchema = z.object({
         .string()
         .min(2, "Location must be at least 2 characters")
         .max(100),
-    // ✅ FEEDER-SPECIFIC (only when deviceType = FEEDER)
+    // FEEDER-SPECIFIC (only when deviceType = FEEDER)
     feederType: z.enum(["MANUAL", "SCHEDULED"]).default("MANUAL"),
     morningTime: z
         .string()

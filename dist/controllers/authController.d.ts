@@ -1,6 +1,6 @@
 import { type NextFunction, type Request, type Response } from "express";
 import type { ExtendedError, Socket } from "socket.io";
-export declare const signup: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+export declare const signup: (req: Request, res: Response, next: NextFunction) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const login: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 export declare const updatePassword: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 export declare const logout: (req: Request, res: Response) => Promise<void>;
@@ -14,4 +14,5 @@ export declare const restrictTo: (...roles: string[]) => (req: Request, res: Res
  * Usage: io.use(protectWs);
  */
 export declare const protectWs: (socket: Socket, next: (err?: ExtendedError) => void) => Promise<void>;
+export declare const getAllUsers: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 //# sourceMappingURL=authController.d.ts.map

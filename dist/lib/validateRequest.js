@@ -1,11 +1,12 @@
 import AppError from "../utils/appError.js";
 export const validateRequest = (schema) => {
-    return async (req, res, next) => {
+    return async (req, _res, next) => {
         try {
-            await schema.parseAsync(req.body);
+            req.body = await schema.parseAsync(req.body);
             next();
         }
         catch (error) {
+            console.log(error);
             if (error.name === "ZodError") {
                 const messageRegex = /"message":\s*"([^"]+)"/g;
                 const messages = [];

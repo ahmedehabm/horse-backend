@@ -5,6 +5,7 @@ import { publishFeedCommand, publishStreamCommand } from "../iot/initAwsIot.js";
 import AppError from "../utils/appError.js";
 import { broadcastStatus } from "../ws/clientWs.js";
 import { generateStreamToken, invalidateStreamToken } from "./streamService.js";
+import { parentPort } from "worker_threads";
 
 export async function startFeeding(
   horseId: string,
@@ -100,89 +101,6 @@ export async function startFeeding(
 
   return result;
 }
-
-/**
- * Start camera streaming for horse
- */
-
-// OLD VERSIONS
-// export async function startStreaming(horseId: string, userId: string) {
-//   // 1) Minimal horse lookup + ownership check
-//   const horse = await prisma.horse.findFirst({
-//     where: { id: horseId, ownerId: userId },
-//     select: { id: true, name: true, cameraId: true },
-//   });
-
-//   if (!horse) {
-//     throw new AppError("Forbidden horseId", 403);
-//   }
-
-//   if (!horse.cameraId) {
-//     throw new AppError("Horse has no camera assigned", 404);
-//   }
-
-//   // 2) Minimal device lookup
-//   const camera = await prisma.device.findUnique({
-//     where: { id: horse.cameraId },
-//     select: { id: true, thingName: true, deviceType: true },
-//   });
-
-//   if (!camera) {
-//     throw new AppError("Camera device not found", 404);
-//   }
-//   if (camera.deviceType !== DeviceType.CAMERA) {
-//     throw new AppError("Assigned device is not a camera", 400);
-//   }
-
-//   // // Optional: immediately tell UI we're requesting stream
-//   // await broadcastFeedingStatus({
-//   //   type: "STREAM_STATUS",
-//   //   status: "PENDING",
-//   //   horseId: horse.id,
-//   //   streamUrl: "WORKING ON...",
-//   // });
-
-//   // 3) Send AWS IoT command
-//   await publishStreamCommand(camera.thingName, {
-//     type: "STREAM_START_COMMAND",
-//     horseId: horse.id,
-//   });
-
-//   return { horse, device: camera };
-// }
-
-// export async function stopStreaming(horseId: string, userId: string) {
-//   const horse = await prisma.horse.findFirst({
-//     where: { id: horseId, ownerId: userId },
-//     select: { id: true, name: true, cameraId: true },
-//   });
-
-//   if (!horse) throw new AppError("Forbidden horseId", 403);
-
-//   if (!horse.cameraId) throw new AppError("Horse has no camera assigned", 404);
-
-//   const camera = await prisma.device.findUnique({
-//     where: { id: horse.cameraId },
-//     select: { id: true, thingName: true, deviceType: true },
-//   });
-
-//   if (!camera) throw new AppError("Camera device not found", 404);
-
-//   if (camera.deviceType !== DeviceType.CAMERA) {
-//     throw new AppError("Assigned device is not a camera", 400);
-//   }
-
-//   // Send STOP command to AWS IoT (device firmware must support it)
-//   await publishStreamCommand(camera.thingName, {
-//     type: "STREAM_STOP_COMMAND",
-//     horseId: horse.id,
-//   });
-
-//   // Invalidate token so /stream/:token stops working
-//   await invalidateStreamToken(camera.id);
-
-//   return { horse, device: camera };
-// }
 
 export async function startStreaming(horseId: string, userId: string) {
   const result = await prisma.$transaction(async (tx) => {
@@ -363,6 +281,7 @@ export async function startScheduledFeeding(
     // 2) Block if active feeding exists
     const activeFeeding = await tx.activeFeeding.findUnique({
       where: { horseId: horse.id },
+      select: { id: true, status: true },
     });
 
     if (activeFeeding) {
@@ -399,19 +318,14 @@ export async function startScheduledFeeding(
     return { feeding, horse, feeder: device };
   });
 
-  // Broadcast + IoT
-  await broadcastStatus({
-    type: "FEEDING_STATUS",
-    status: "PENDING",
-    feedingId: result.feeding.id,
-    horseId: result.horse.id,
-  });
-
-  await publishFeedCommand(result.feeder.thingName, {
-    type: "FEED_COMMAND",
-    feedingId: result.feeding.id,
-    targetKg: result.feeder.scheduledAmountKg || 2.0,
-    horseId: result.horse.id,
+  parentPort?.postMessage({
+    type: "SCHEDULED_FEED_STARTED",
+    payload: {
+      horseId: result.horse.id,
+      feedingId: result.feeding.id,
+      thingName: result.feeder.thingName,
+      targetKg: result.feeder.scheduledAmountKg || 2.0,
+    },
   });
 
   console.log(
