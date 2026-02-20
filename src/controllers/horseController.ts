@@ -14,19 +14,10 @@ export const getAllHorses = async (
   next: NextFunction,
 ) => {
   try {
-    const { unassigned } = req.query;
-    // Build query with ALL features
-    const features = new APIFeatures(req.query)
-      .limitFields()
-      .relations()
-      .paginate()
-      .filter();
-
-    const prismaQuery = features.getQuery();
-    const meta = features.getPaginationMeta();
+    const { page = 1, limit = 10 } = req.query;
 
     // Define DEFAULT fields (relations included)
-    const defaultSelect = {
+    const select = {
       id: true,
       name: true,
       image: true,
@@ -43,49 +34,28 @@ export const getAllHorses = async (
       },
     };
 
-    // MERGE: User fields + always include relations/count
-    const relationsDisabled = prismaQuery.relationsDisabled || false;
+    //  Parse pagination
+    const skip = (Number(page) - 1) * Number(limit);
 
-    // Build select FIRST
-    let finalSelect: any;
-    if (relationsDisabled) {
-      // Flat fields only
-      finalSelect = {
-        id: true,
-        ...(prismaQuery.select || {}),
-      };
-    } else {
-      // Relations enabled
-      finalSelect = {
-        ...defaultSelect,
-        ...(prismaQuery.select || {}),
-      };
-    }
-
-    // ✅ CRITICAL: Spread prismaQuery LAST to preserve where
-    const finalQuery: any = {
-      select: finalSelect,
-      ...(prismaQuery || {}), // where, skip, take preserved
-    };
-
-    // Clean invalid fields
-    delete finalQuery.relationsDisabled;
-    delete finalQuery.relations;
-
-    // Execute with proper relations
+    //  Execute queries
     const [horses, total] = await Promise.all([
-      prisma.horse.findMany(finalQuery),
-      prisma.horse.count({ where: prismaQuery.where }),
+      prisma.horse.findMany({
+        select,
+        skip,
+        take: Number(limit),
+        orderBy: { lastFeedAt: "desc" },
+      }),
+      prisma.horse.count(),
     ]);
 
     res.status(200).json({
       status: "success",
       results: horses.length,
       pagination: {
-        page: meta.page,
-        limit: meta.limit,
+        page: Number(page),
+        limit: Number(limit),
         total,
-        totalPages: Math.ceil(total / meta.limit),
+        totalPages: Math.ceil(total / Number(limit)),
       },
       data: { horses },
     });
@@ -542,55 +512,6 @@ export const bulkAssignHorsesToUser = async (
   }
 };
 
-export const getFeedingActiveStatus = async (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) => {
-  try {
-    const { horseId } = req.params as { horseId: string };
-
-    // Find the most recent feeding that's not completed or failed
-    const activeFeeding = await prisma.feeding.findFirst({
-      where: {
-        horseId,
-        status: {
-          in: [
-            FeedingStatus.PENDING,
-            FeedingStatus.STARTED,
-            FeedingStatus.RUNNING,
-          ],
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-      include: {
-        horse: {
-          include: {
-            feeder: true,
-          },
-        },
-      },
-    });
-
-    // No active feeding found
-    if (!activeFeeding) {
-      throw new AppError("No active feeding found for this horse", 404);
-    }
-
-    // Return feeding status in the same format as Socket.IO events
-    return res.json({
-      horseId: activeFeeding.horseId,
-      feedingId: activeFeeding.id,
-      status: activeFeeding.status,
-      deviceName: activeFeeding.horse.feeder?.thingName || "Unknown",
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
 export async function getHorsesStats(
   req: Request,
   res: Response,
@@ -617,10 +538,10 @@ export async function getHorsesStats(
       select: { activeStreamHorseId: true },
     });
 
-    //this means that stream is started already
     let activeStream: null | {
       horseId: string;
       status: "STARTED" | "PENDING" | "IDLE";
+      streamToken?: string;
     } = null;
 
     if (user?.activeStreamHorseId) {
@@ -628,26 +549,36 @@ export async function getHorsesStats(
         where: { id: user.activeStreamHorseId, ownerId: userId },
         select: {
           id: true,
-          camera: { select: { streamTokenIsValid: true, streamToken: true } },
+          camera: {
+            select: {
+              streamTokenIsValid: true,
+              streamToken: true,
+            },
+          },
         },
       });
 
       if (!horse) {
-        // await prisma.user.update({
-        //   where: { id: userId },
-        //   data: { activeStreamHorseId: null },
-        // });
+        // if there is no active horse id then it is simply IDLE
 
         activeStream = null;
-
         //
       } else if (horse.camera?.streamTokenIsValid && horse.camera.streamToken) {
-        activeStream = { horseId: horse.id, status: "STARTED" };
+        // if there is a token and it is valid then it STARTED because token is generated when stream starts
 
+        activeStream = {
+          horseId: horse.id,
+          status: "STARTED",
+          streamToken: horse.camera.streamToken,
+        };
         //
       } else {
-        activeStream = { horseId: horse.id, status: "PENDING" };
+        // if there is no token or it is invalid then it is PENDING (waiting for stream to start)
 
+        activeStream = {
+          horseId: horse.id,
+          status: "PENDING",
+        };
         //
       }
     }

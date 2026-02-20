@@ -10,7 +10,7 @@ import { prisma } from "../lib/prisma.js";
 async function runScheduledFeeding() {
   try {
     const now = new Date().toLocaleTimeString("en-US", {
-      timeZone: "Africa/Cairo",
+      timeZone: "Europe/Madrid",
       hour12: false,
       hour: "2-digit",
       minute: "2-digit",

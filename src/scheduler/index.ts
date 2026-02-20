@@ -29,32 +29,42 @@ export const scheduler = new Bree({
     {
       name: "schedualedFeeding",
       // Run at the top of every hour (00:00, 01:00, 02:00, etc.)
-      cron: "* * * * *",
-      timezone: "Africa/Cairo",
+      cron: "0 * * * *",
+      timezone: "Europe/Madrid",
     },
   ],
 
   workerMessageHandler: async ({ message }) => {
     const msg = message as BreeWorkerMsg | undefined;
-
-    if (!msg) return;
+    if (!msg) {
+      console.error("[MAIN] Received null/undefined message");
+      return;
+    }
+    console.log(`[MAIN] Processing message: ${JSON.stringify(msg)}`);
 
     if (msg.type === "SCHEDULED_FEED_STARTED") {
       const { horseId, feedingId, thingName, targetKg } = msg.payload;
 
-      await broadcastStatus({
-        type: "FEEDING_STATUS",
-        status: "PENDING",
-        feedingId,
-        horseId,
-      });
-
-      await publishFeedCommand(thingName, {
-        type: "FEED_COMMAND",
-        feedingId,
-        targetKg,
-        horseId,
-      });
+      try {
+        console.log(
+          `[MAIN] Broadcasting PENDING status for horseId: ${horseId}, feedingId: ${feedingId}`,
+        );
+        await broadcastStatus({
+          type: "FEEDING_STATUS",
+          status: "PENDING",
+          feedingId,
+          horseId,
+        });
+        console.log(`[MAIN] Broadcast successful for ${horseId}`);
+        await publishFeedCommand(thingName, {
+          type: "FEED_COMMAND",
+          feedingId,
+          targetKg,
+          horseId,
+        });
+      } catch (err) {
+        console.error(`[MAIN] Error in handler for ${horseId}:`, err);
+      }
     }
   },
 

@@ -39,7 +39,7 @@ export const updatePasswordSchema = z
 // ========== HORSE VALIDATORS ==========
 export const createHorseSchema = z.object({
   name: z
-    .string({ error: "NAMMM" })
+    .string({ error: "Horse name is required" })
     .min(2, "Horse name must be at least 2 characters")
     .max(50),
   breed: z
@@ -73,35 +73,173 @@ export const createHorseSchema = z.object({
 export const updateHorseSchema = createHorseSchema.partial();
 
 // ========== DEVICE VALIDATORS ==========
-export const createDeviceSchema = z.object({
-  thingLabel: z
-    .string()
-    .min(5, "Device name must be at least 5 characters")
-    .max(50),
+export const createDeviceSchema = z
+  .object({
+    thingLabel: z
+      .string()
+      .min(5, "Device name must be at least 5 characters")
+      .max(50),
 
-  deviceType: z.enum(["CAMERA", "FEEDER"]),
-  location: z
-    .string()
-    .min(2, "Location must be at least 2 characters")
-    .max(100),
+    deviceType: z.enum(["CAMERA", "FEEDER"]),
+    location: z
+      .string()
+      .min(2, "Location must be at least 2 characters")
+      .max(100),
 
-  // FEEDER-SPECIFIC (only when deviceType = FEEDER)
-  feederType: z.enum(["MANUAL", "SCHEDULED"]).default("MANUAL"),
-  morningTime: z
-    .string()
-    .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "HH:MM format (08:00)")
-    .optional(),
-  dayTime: z
-    .string()
-    .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "HH:MM format (08:00)")
-    .optional(),
-  nightTime: z
-    .string()
-    .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "HH:MM format (08:00)")
-    .optional(),
-});
+    // FEEDER-SPECIFIC (only when deviceType = FEEDER)
+    feederType: z.enum(["MANUAL", "SCHEDULED"]).default("MANUAL"),
 
-export const updateDeviceSchema = createDeviceSchema.partial();
+    scheduledAmountKg: z
+      .number()
+      .min(0.1, "Amount must be at least 0.1 kg")
+      .max(50, "Amount cannot exceed 50 kg")
+      .optional(),
+
+    morningTime: z
+      .string()
+      .regex(
+        /^([0-1]?[0-9]|2[0-3]):00$/,
+        "Must be on the hour (e.g., 04:00, 05:00, 16:00)",
+      )
+      .or(z.literal(""))
+      .optional(),
+
+    dayTime: z
+      .string()
+      .regex(
+        /^([0-1]?[0-9]|2[0-3]):00$/,
+        "Must be on the hour (e.g., 04:00, 05:00, 16:00)",
+      )
+      .or(z.literal(""))
+      .optional(),
+
+    nightTime: z
+      .string()
+      .regex(
+        /^([0-1]?[0-9]|2[0-3]):00$/,
+        "Must be on the hour (e.g., 04:00, 05:00, 16:00)",
+      )
+      .or(z.literal(""))
+      .optional(),
+  })
+  .refine(
+    (data) => {
+      // If SCHEDULED feeder, scheduledAmountKg is required
+      if (data.deviceType === "FEEDER" && data.feederType === "SCHEDULED") {
+        return data.scheduledAmountKg !== undefined;
+      }
+      return true;
+    },
+    {
+      message: "scheduledAmountKg is required for SCHEDULED feeders",
+      path: ["scheduledAmountKg"],
+    },
+  )
+  .refine(
+    (data) => {
+      // If SCHEDULED feeder, at least one time must be set
+      if (data.deviceType === "FEEDER" && data.feederType === "SCHEDULED") {
+        return data.morningTime || data.dayTime || data.nightTime;
+      }
+      return true;
+    },
+    {
+      message: "At least one feeding time must be set for SCHEDULED feeders",
+      path: ["morningTime"],
+    },
+  )
+  .refine(
+    (data) => {
+      // Check for duplicate times
+      const times = [data.morningTime, data.dayTime, data.nightTime].filter(
+        (t) => t && t !== "",
+      );
+      const uniqueTimes = new Set(times);
+      return times.length === uniqueTimes.size;
+    },
+    {
+      message: "Feeding times cannot be duplicated",
+      path: ["dayTime"],
+    },
+  );
+
+export const updateFeederSchema = z
+  .object({
+    feederType: z.enum(["MANUAL", "SCHEDULED"]).default("MANUAL"),
+
+    scheduledAmountKg: z
+      .number()
+      .min(0.1, "Amount must be at least 0.1 kg")
+      .max(50, "Amount cannot exceed 50 kg")
+      .optional(),
+
+    morningTime: z
+      .string()
+      .regex(
+        /^([0-1]?[0-9]|2[0-3]):00$/,
+        "Must be on the hour (e.g., 04:00, 05:00, 16:00)",
+      )
+      .or(z.literal(""))
+      .optional(),
+
+    dayTime: z
+      .string()
+      .regex(
+        /^([0-1]?[0-9]|2[0-3]):00$/,
+        "Must be on the hour (e.g., 04:00, 05:00, 16:00)",
+      )
+      .or(z.literal(""))
+      .optional(),
+
+    nightTime: z
+      .string()
+      .regex(
+        /^([0-1]?[0-9]|2[0-3]):00$/,
+        "Must be on the hour (e.g., 04:00, 05:00, 16:00)",
+      )
+      .or(z.literal(""))
+      .optional(),
+  })
+  .refine(
+    (data) => {
+      // If SCHEDULED feeder, scheduledAmountKg is required
+      if (data.feederType === "SCHEDULED") {
+        return data.scheduledAmountKg !== undefined;
+      }
+      return true;
+    },
+    {
+      message: "scheduledAmountKg is required for SCHEDULED feeders",
+      path: ["scheduledAmountKg"],
+    },
+  )
+  .refine(
+    (data) => {
+      // If SCHEDULED feeder, at least one time must be set
+      if (data.feederType === "SCHEDULED") {
+        return data.morningTime || data.dayTime || data.nightTime;
+      }
+      return true;
+    },
+    {
+      message: "At least one feeding time must be set for SCHEDULED feeders",
+      path: ["morningTime"],
+    },
+  )
+  .refine(
+    (data) => {
+      // Check for duplicate times
+      const times = [data.morningTime, data.dayTime, data.nightTime].filter(
+        (t) => t && t !== "",
+      );
+      const uniqueTimes = new Set(times);
+      return times.length === uniqueTimes.size;
+    },
+    {
+      message: "Feeding times cannot be duplicated",
+      path: ["dayTime"],
+    },
+  );
 
 // ========== FEEDING VALIDATORS ==========
 export const createFeedingSchema = z.object({
@@ -132,5 +270,5 @@ export type UpdatePasswordInput = z.infer<typeof updatePasswordSchema>;
 export type CreateHorseInput = z.infer<typeof createHorseSchema>;
 export type UpdateHorseInput = z.infer<typeof updateHorseSchema>;
 export type CreateDeviceInput = z.infer<typeof createDeviceSchema>;
-export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;
+// export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;
 export type CreateFeedingInput = z.infer<typeof createFeedingSchema>;

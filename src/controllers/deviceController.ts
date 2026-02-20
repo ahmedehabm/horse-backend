@@ -9,6 +9,7 @@ const toInt = (v: unknown, fallback: number) => {
   const n = parseInt(String(v ?? ""), 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 };
+const normalizeTime = (t: string) => (t === "" ? null : t);
 
 /**
  * 1) GET /api/v1/devices/options?type=FEEDER|CAMERA&unassigned=true
@@ -101,6 +102,7 @@ export const getMyFeeders = async (
         select: {
           id: true,
           thingLabel: true,
+          feederType: true,
           horsesAsFeeder: {
             take: 1,
             select: { id: true, name: true },
@@ -110,22 +112,152 @@ export const getMyFeeders = async (
       prisma.device.count({ where }),
     ]);
 
-    const formatted = feeders.map((f) => ({
-      ...f,
-      horse: f.horsesAsFeeder[0] ?? null,
-      horsesAsFeeder: undefined,
-    }));
-
     return res.status(200).json({
       status: "success",
-      results: formatted.length,
+      results: feeders.length,
       pagination: {
         page,
         limit,
         total,
         totalPages: Math.ceil(total / limit),
       },
-      data: { feeders: formatted },
+      data: { feeders },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getMyFeeder = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const user = req.user!;
+    const { id } = req.params as { id: string };
+
+    if (user.role === "ADMIN") {
+      return res.status(403).json({
+        status: "fail",
+        message: "Admins should not use this route",
+      });
+    }
+
+    const where: Prisma.DeviceWhereInput = {
+      id,
+      deviceType: DeviceType.FEEDER,
+      // ensure this feeder belongs to this user (via horse ownership)
+      horsesAsFeeder: {
+        some: { ownerId: user.id },
+      },
+    };
+
+    const feeder = await prisma.device.findFirst({
+      where,
+      select: {
+        feederType: true,
+        scheduledAmountKg: true,
+        morningTime: true,
+        dayTime: true,
+        nightTime: true,
+      },
+    });
+
+    if (!feeder) {
+      return next(new AppError("Feeder not found", 404));
+    }
+
+    return res.status(200).json({
+      status: "success",
+      data: { feeder },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateMyFeeder = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const user = req.user!;
+    const { id } = req.params as { id: string };
+
+    if (user.role === "ADMIN") {
+      return res.status(403).json({
+        status: "fail",
+        message: "Admins should not use this route",
+      });
+    }
+
+    // 1) Make sure this feeder belongs to this user (through owned horse)
+    const ownedFeeder = await prisma.device.findFirst({
+      where: {
+        id,
+        deviceType: DeviceType.FEEDER,
+        horsesAsFeeder: { some: { ownerId: user.id } },
+      },
+      select: { id: true },
+    });
+
+    if (!ownedFeeder) return next(new AppError("Feeder not found", 404));
+
+    // 2) req.body is already validated by validateRequest(updateFeederSchema)
+    const body = req.body as {
+      feederType: "MANUAL" | "SCHEDULED";
+      scheduledAmountKg?: number;
+      morningTime?: string;
+      dayTime?: string;
+      nightTime?: string;
+    };
+
+    // 3) Build prisma update object
+
+    const updateData: Prisma.DeviceUpdateInput = {
+      feederType: body.feederType,
+    };
+
+    if (body.feederType === "MANUAL") {
+      updateData.scheduledAmountKg = null;
+      updateData.morningTime = null;
+      updateData.dayTime = null;
+      updateData.nightTime = null;
+    } else {
+      // SCHEDULED
+      updateData.scheduledAmountKg = body.scheduledAmountKg!;
+
+      if (body.morningTime !== undefined) {
+        updateData.morningTime = normalizeTime(body.morningTime);
+      }
+
+      if (body.dayTime !== undefined) {
+        updateData.dayTime = normalizeTime(body.dayTime);
+      }
+
+      if (body.nightTime !== undefined) {
+        updateData.nightTime = normalizeTime(body.nightTime);
+      }
+    }
+
+    // 4) Update
+    const updated = await prisma.device.update({
+      where: { id: ownedFeeder.id },
+      data: updateData,
+      select: {
+        feederType: true,
+        scheduledAmountKg: true,
+        morningTime: true,
+        dayTime: true,
+        nightTime: true,
+      },
+    });
+
+    return res.status(200).json({
+      status: "success",
+      data: { feeder: updated },
     });
   } catch (err) {
     next(err);
@@ -155,8 +287,7 @@ export const getAllDevices = async (
     if (type && type !== "FEEDER" && type !== "CAMERA") {
       return res.status(400).json({
         status: "fail",
-        message:
-          "Query param 'type' must be FEEDER, CAMERA, ALL, or omitted for all devices",
+        message: "Query param 'type' must be FEEDER, CAMERA",
       });
     }
 
@@ -234,6 +365,7 @@ export const createDevice = async (
       morningTime,
       dayTime,
       nightTime,
+      scheduledAmountKg,
     } = req.body;
 
     const feederData =
@@ -243,12 +375,14 @@ export const createDevice = async (
             morningTime: morningTime ?? null,
             dayTime: dayTime ?? null,
             nightTime: nightTime ?? null,
+            scheduledAmountKg: scheduledAmountKg ?? null,
           }
         : {
             feederType: FeederType.MANUAL,
             morningTime: null,
             dayTime: null,
             nightTime: null,
+            scheduledAmountKg: null,
           };
 
     // Transaction: Create device + Get AWS certificates

@@ -12,75 +12,74 @@ export async function startFeeding(
   amountKg: number,
   userId: string,
 ) {
-  // Use transaction to prevent race conditions
-  const result = await prisma.$transaction(async (tx) => {
-    // 1) Find horse + verify ownership (with lock)
-    const horse = await tx.horse.findUnique({
-      where: { id: horseId, ownerId: userId },
-      select: { id: true, name: true, feederId: true },
-    });
+  const result = await prisma.$transaction(
+    async (tx) => {
+      // 1) Find horse + verify ownership
+      const horse = await tx.horse.findUnique({
+        where: { id: horseId, ownerId: userId },
+        select: { id: true, name: true, feederId: true },
+      });
 
-    if (!horse) {
-      throw new AppError("Horse Forbidden", 403);
-    }
+      if (!horse) {
+        throw new AppError("Horse Forbidden", 403);
+      }
 
-    if (!horse.feederId) {
-      throw new AppError("Horse has no assigned feeder", 404);
-    }
+      if (!horse.feederId) {
+        throw new AppError("Horse has no assigned feeder", 404);
+      }
 
-    // 2) Get feeder
-    const feeder = await tx.device.findUnique({
-      where: { id: horse.feederId },
-      select: { id: true, thingName: true, deviceType: true },
-    });
+      // 2) Get feeder
+      const feeder = await tx.device.findUnique({
+        where: { id: horse.feederId },
+        select: { id: true, thingName: true, deviceType: true },
+      });
 
-    if (!feeder) {
-      throw new AppError("Feeder device not found", 404);
-    }
+      if (!feeder) {
+        throw new AppError("Feeder device not found", 404);
+      }
 
-    if (feeder.deviceType !== DeviceType.FEEDER) {
-      throw new AppError("Assigned device is not a feeder", 400);
-    }
+      if (feeder.deviceType !== DeviceType.FEEDER) {
+        throw new AppError("Assigned device is not a feeder", 400);
+      }
 
-    // 3) Block if feeding already active
-    const activeFeeding = await tx.activeFeeding.findUnique({
-      where: { horseId: horse.id },
-      select: { status: true },
-    });
+      // 3) Try to create activeFeeding directly (will fail if exists due to unique constraint)
+      try {
+        const feeding = await tx.feeding.create({
+          data: {
+            horseId: horse.id,
+            deviceId: feeder.id,
+            requestedKg: amountKg,
+            status: FeedingStatus.PENDING,
+          },
+          select: { id: true, horseId: true, deviceId: true, status: true },
+        });
 
-    if (activeFeeding) {
-      throw new AppError(
-        `Feeding already in progress (${activeFeeding.status})`,
-        409,
-      );
-    }
+        await tx.activeFeeding.create({
+          data: {
+            horseId: horse.id,
+            deviceId: feeder.id,
+            feedingId: feeding.id,
+            status: FeedingStatus.PENDING,
+            requestedKg: amountKg,
+          },
+        });
 
-    // 4) Create feeding record (inside transaction)
-    const feeding = await tx.feeding.create({
-      data: {
-        horseId: horse.id,
-        deviceId: feeder.id,
-        requestedKg: amountKg,
-        status: FeedingStatus.PENDING,
-      },
-      select: { id: true, horseId: true, deviceId: true, status: true },
-    });
+        return { feeding, horse, feeder };
+      } catch (err: any) {
+        // Prisma error P2002 = Unique constraint violation
+        if (err.code === "P2002") {
+          throw new AppError("Feeding already in progress", 409);
+        }
+        throw err;
+      }
+    },
+    {
+      isolationLevel: "Serializable", // ← CRITICAL: Prevents race conditions
+      timeout: 10000,
+    },
+  );
 
-    // 5) Create live snapshot (THE IMPORTANT PART)
-    await tx.activeFeeding.create({
-      data: {
-        horseId: horse.id,
-        deviceId: feeder.id,
-        feedingId: feeding.id,
-        status: FeedingStatus.PENDING,
-        requestedKg: amountKg,
-      },
-    });
-
-    return { feeding, horse, feeder };
-  });
-
-  // 5) Outside transaction: Broadcast and send IoT command
+  // Outside transaction: Broadcast and send IoT command
   await broadcastStatus({
     type: "FEEDING_STATUS",
     status: "PENDING",
@@ -98,6 +97,91 @@ export async function startFeeding(
   console.log(
     `🐴 Feeding started: ${result.horse.name} (${amountKg}kg) via ${result.feeder.thingName}`,
   );
+
+  return result;
+}
+
+export async function startScheduledFeeding(
+  deviceId: string,
+  timeSlot: "morning" | "day" | "night" = "morning",
+) {
+  const result = await prisma.$transaction(
+    async (tx) => {
+      // 1) Get the device with its assigned horse
+      const device = (await tx.device.findUnique({
+        where: { id: deviceId, feederType: "SCHEDULED" },
+        select: {
+          id: true,
+          thingName: true,
+          scheduledAmountKg: true,
+          horsesAsFeeder: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      })) as any;
+
+      if (!device) {
+        throw new AppError("Device not found or not a scheduled feeder", 404);
+      }
+
+      const horse = device.horsesAsFeeder[0];
+
+      if (!horse) {
+        throw new AppError("No horse assigned to this feeder", 404);
+      }
+
+      const amountKg = Number(device.scheduledAmountKg || 2.0);
+
+      // 2) Try to create activeFeeding directly (will fail if exists)
+      try {
+        const feeding = await tx.feeding.create({
+          data: {
+            horseId: horse.id,
+            deviceId: device.id,
+            requestedKg: amountKg,
+            status: FeedingStatus.PENDING,
+            isScheduled: true,
+            timeSlot,
+          },
+          select: { id: true, horseId: true, deviceId: true, status: true },
+        });
+
+        await tx.activeFeeding.create({
+          data: {
+            horseId: horse.id,
+            deviceId: device.id,
+            feedingId: feeding.id,
+            status: FeedingStatus.PENDING,
+            requestedKg: amountKg,
+          },
+        });
+
+        return { feeding, horse, feeder: device };
+      } catch (err: any) {
+        if (err.code === "P2002") {
+          throw new AppError("Feeding already in progress", 409);
+        }
+        throw err;
+      }
+    },
+    {
+      isolationLevel: "Serializable", // ← CRITICAL: Prevents race conditions
+      timeout: 10000,
+    },
+  );
+
+  parentPort?.postMessage({
+    type: "SCHEDULED_FEED_STARTED",
+    payload: {
+      horseId: result.horse.id,
+      feedingId: result.feeding.id,
+      thingName: result.feeder.thingName,
+      targetKg: result.feeder.scheduledAmountKg || 2.0,
+    },
+  });
 
   return result;
 }
@@ -148,7 +232,6 @@ export async function startStreaming(horseId: string, userId: string) {
     }
 
     // Update active stream
-
     await tx.user.update({
       where: { id: userId },
       data: { activeStreamHorseId: horseId },
@@ -183,13 +266,6 @@ export async function startStreaming(horseId: string, userId: string) {
 }
 
 export async function stopStreaming(horseId: string, userId: string) {
-  console.log("STOP_STREAMING called", {
-    horseId,
-    userId,
-    pid: process.pid,
-    stack: new Error().stack,
-  });
-
   const result = await prisma.$transaction(async (tx) => {
     // 1) Verify ownership and get horse
     const horse = await tx.horse.findFirst({
@@ -208,6 +284,7 @@ export async function stopStreaming(horseId: string, userId: string) {
     });
 
     if (!camera) throw new AppError("Camera device not found", 404);
+
     if (camera.deviceType !== DeviceType.CAMERA) {
       throw new AppError("Assigned device is not a camera", 400);
     }
@@ -219,6 +296,7 @@ export async function stopStreaming(horseId: string, userId: string) {
     });
 
     if (!user) throw new AppError("User not found", 404);
+
     if (user.activeStreamHorseId !== horseId) {
       throw new AppError("This horse is not currently streaming", 409);
     }
@@ -242,95 +320,4 @@ export async function stopStreaming(horseId: string, userId: string) {
   });
 
   return { horse: result.horse, device: result.camera };
-}
-
-export async function startScheduledFeeding(
-  deviceId: string,
-  timeSlot: "morning" | "day" | "night" = "morning",
-) {
-  const result = await prisma.$transaction(async (tx) => {
-    // 1) Get the device with its assigned horse
-    const device = (await tx.device.findUnique({
-      where: { id: deviceId, feederType: "SCHEDULED" },
-      select: {
-        id: true,
-        thingName: true,
-        scheduledAmountKg: true,
-        horsesAsFeeder: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    })) as any;
-
-    if (!device) {
-      throw new AppError("Device not found or not a scheduled feeder", 404);
-    }
-
-    // horsesAsFeeder is an array, get the first one
-    const horse = device.horsesAsFeeder[0];
-
-    if (!horse) {
-      throw new AppError("No horse assigned to this feeder", 404);
-    }
-
-    const amountKg = Number(device.scheduledAmountKg || 2.0);
-
-    // 2) Block if active feeding exists
-    const activeFeeding = await tx.activeFeeding.findUnique({
-      where: { horseId: horse.id },
-      select: { id: true, status: true },
-    });
-
-    if (activeFeeding) {
-      throw new AppError(
-        `Feeding already in progress (${activeFeeding.status})`,
-        409,
-      );
-    }
-
-    // 3) Create Feeding
-    const feeding = await tx.feeding.create({
-      data: {
-        horseId: horse.id,
-        deviceId: device.id,
-        requestedKg: amountKg,
-        status: FeedingStatus.PENDING,
-        isScheduled: true,
-        timeSlot,
-      },
-      select: { id: true, horseId: true, deviceId: true, status: true },
-    });
-
-    // 4) Create active snapshot
-    await tx.activeFeeding.create({
-      data: {
-        horseId: horse.id,
-        deviceId: device.id,
-        feedingId: feeding.id,
-        status: FeedingStatus.PENDING,
-        requestedKg: amountKg,
-      },
-    });
-
-    return { feeding, horse, feeder: device };
-  });
-
-  parentPort?.postMessage({
-    type: "SCHEDULED_FEED_STARTED",
-    payload: {
-      horseId: result.horse.id,
-      feedingId: result.feeding.id,
-      thingName: result.feeder.thingName,
-      targetKg: result.feeder.scheduledAmountKg || 2.0,
-    },
-  });
-
-  console.log(
-    `🕐 Scheduled ${timeSlot} feed: ${result.horse.name} (${result.feeder.scheduledAmountKg}kg)`,
-  );
-
-  return result;
 }

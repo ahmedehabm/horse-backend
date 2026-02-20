@@ -4,51 +4,40 @@ import { prisma } from "../lib/prisma.js";
 import AppError from "../utils/appError.js";
 
 /**
- * Hash a token using SHA256
- */
-function hashToken(token: string): string {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
-
-/**
- * Generate a stream token and store its hash in the database
+ * Generate a stream token and store it PLAIN in the database
  * works for CAMERA devices only
  */
-
 export async function generateStreamToken(
   deviceId: string,
   tx?: any,
 ): Promise<{ token: string }> {
   const client = tx || prisma;
-  // Generate random token to send to client
+  // Generate random token
   const token = crypto.randomBytes(32).toString("hex");
 
-  // Hash the token before storing in database
-  const hashedToken = hashToken(token);
-
+  //  Store token as-is (no hashing)
   await client.device.update({
     where: { id: deviceId },
     data: {
-      streamToken: hashedToken,
+      streamToken: token,
       streamTokenIsValid: true,
     },
   });
 
   console.log(`📹 Stream token generated for camera: ${deviceId}`);
 
-  return { token }; // Return unhashed
+  return { token };
 }
 
 /**
- * Validate stream token by hashing and comparing
- *  Returns camera device ID if valid
+ * Validate stream token by direct comparison
+ * Returns camera device ID if valid
  */
 export async function validateStreamToken(token: string) {
-  const hashedToken = hashToken(token);
-
+  // Compare directly (no hashing)
   const device = await prisma.device.findFirst({
     where: {
-      streamToken: hashedToken,
+      streamToken: token,
       streamTokenIsValid: true,
       deviceType: "CAMERA",
     },
@@ -77,10 +66,7 @@ export async function validateStreamToken(token: string) {
 /**
  * Invalidate stream token
  */
-export async function invalidateStreamToken(
-  deviceId: string,
-  tx?: any, // Or: tx?: Prisma.TransactionClient
-) {
+export async function invalidateStreamToken(deviceId: string, tx?: any) {
   const client = tx || prisma;
 
   await client.device.update({
@@ -88,7 +74,6 @@ export async function invalidateStreamToken(
     data: { streamToken: null, streamTokenIsValid: false },
   });
 }
-
 /**
  * Get camera details by stream token (for stream endpoints)
  */

@@ -7,7 +7,6 @@ import {
   createHorse,
   updateHorse,
   deleteHorse,
-  getFeedingActiveStatus,
   getHorsesStats,
 } from "../controllers/horseController.js";
 import { restrictTo } from "../controllers/authController.js";

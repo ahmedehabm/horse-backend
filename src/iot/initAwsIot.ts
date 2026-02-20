@@ -304,8 +304,8 @@ async function publishFeederWeightCommand(
   const topic = `feeders/${thingName}/weight-commands`;
   const payload = JSON.stringify(command);
 
-  console.log("topic from loginnnn", topic);
-  console.log("payload from loginnnn", payload);
+  // console.log("topic from loginnnn", topic);
+  // console.log("payload from loginnnn", payload);
 
   await new Promise<void>((resolve, reject) => {
     client!.publish(topic, payload, { qos: 1 }, (err) =>

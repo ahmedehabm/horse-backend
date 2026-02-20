@@ -168,8 +168,7 @@ async function main() {
       thingName: "CAMERA-BELLA-001",
       thingLabel: "camera bella",
       location: "North Barn - Stall 1 Ceiling",
-      streamToken: "cam-stream-token-001",
-      streamTokenIsValid: true,
+      streamTokenIsValid: false,
     },
   });
 
@@ -179,8 +178,7 @@ async function main() {
       thingName: "CAMERA-THUNDER-002",
       thingLabel: "camera thunder",
       location: "North Barn - Stall 2 Ceiling",
-      streamToken: "cam-stream-token-002",
-      streamTokenIsValid: true,
+      streamTokenIsValid: false,
     },
   });
 
@@ -190,8 +188,7 @@ async function main() {
       thingName: "CAMERA-SPIRIT-003",
       thingLabel: "camera spirit",
       location: "South Barn - Stall 1 Corner",
-      streamToken: "cam-stream-token-003",
-      streamTokenIsValid: true,
+      streamTokenIsValid: false,
     },
   });
 
@@ -201,7 +198,6 @@ async function main() {
       thingName: "CAMERA-MIDNIGHT-004",
       thingLabel: "camera midnight",
       location: "South Barn - Stall 2 Corner",
-      streamToken: "cam-stream-token-004",
       streamTokenIsValid: false, // Example: expired token
     },
   });
@@ -212,8 +208,7 @@ async function main() {
       thingName: "CAMERA-STAR-005",
       thingLabel: "camera star",
       location: "Training Area - Bay 1 Wall",
-      streamToken: "cam-stream-token-005",
-      streamTokenIsValid: true,
+      streamTokenIsValid: false,
     },
   });
 
@@ -223,8 +218,7 @@ async function main() {
       thingName: "CAMERA-APOLLO-006",
       thingLabel: "camera apollo",
       location: "Training Area - Bay 2 Wall",
-      streamToken: "cam-stream-token-006",
-      streamTokenIsValid: true,
+      streamTokenIsValid: false,
     },
   });
 
@@ -234,8 +228,7 @@ async function main() {
       thingName: "CAMERA-LUNA-007",
       thingLabel: "camera luna",
       location: "East Pasture - Shelter 1 Entrance",
-      streamToken: "cam-stream-token-007",
-      streamTokenIsValid: true,
+      streamTokenIsValid: false,
     },
   });
 
@@ -345,118 +338,6 @@ async function main() {
   });
 
   console.log(`✅ Created 7 horses (each with 1 feeder + 1 camera)`);
-
-  // ========================================
-  // FEEDINGS (Historical records)
-  // ========================================
-  console.log("🍽️ Creating feeding history...");
-
-  // Bella's feedings (using feeder1)
-  await prisma.feeding.create({
-    data: {
-      horseId: horse1.id,
-      deviceId: feeder1.id,
-      status: FeedingStatus.COMPLETED,
-      requestedKg: 5.0,
-      isScheduled: true,
-      timeSlot: "morning",
-      startedAt: new Date("2025-01-28T07:00:00"),
-      completedAt: new Date("2025-01-28T07:15:00"),
-    },
-  });
-
-  await prisma.feeding.create({
-    data: {
-      horseId: horse1.id,
-      deviceId: feeder1.id,
-      status: FeedingStatus.COMPLETED,
-      requestedKg: 5.0,
-      isScheduled: true,
-      timeSlot: "day",
-      startedAt: new Date("2025-01-28T13:00:00"),
-      completedAt: new Date("2025-01-28T13:12:00"),
-    },
-  });
-
-  // Thunder's manual feeding
-  await prisma.feeding.create({
-    data: {
-      horseId: horse2.id,
-      deviceId: feeder2.id,
-      status: FeedingStatus.COMPLETED,
-      requestedKg: 6.5,
-      isScheduled: false,
-      startedAt: new Date("2025-01-28T10:30:00"),
-      completedAt: new Date("2025-01-28T10:45:00"),
-    },
-  });
-
-  // Spirit's scheduled feedings
-  await prisma.feeding.create({
-    data: {
-      horseId: horse3.id,
-      deviceId: feeder3.id,
-      status: FeedingStatus.COMPLETED,
-      requestedKg: 5.5,
-      isScheduled: true,
-      timeSlot: "morning",
-      startedAt: new Date("2025-01-28T06:30:00"),
-      completedAt: new Date("2025-01-28T06:42:00"),
-    },
-  });
-
-  // Midnight's feeding with FAILED status
-  await prisma.feeding.create({
-    data: {
-      horseId: horse4.id,
-      deviceId: feeder4.id,
-      status: FeedingStatus.FAILED,
-      requestedKg: 7.0,
-      isScheduled: false,
-      startedAt: new Date("2025-01-28T14:00:00"),
-    },
-  });
-
-  // Star's RUNNING feeding (active now)
-  await prisma.feeding.create({
-    data: {
-      horseId: horse5.id,
-      deviceId: feeder5.id,
-      status: FeedingStatus.RUNNING,
-      requestedKg: 5.0,
-      isScheduled: true,
-      timeSlot: "day",
-      startedAt: new Date(),
-    },
-  });
-
-  // Apollo's PENDING feeding
-  await prisma.feeding.create({
-    data: {
-      horseId: horse6.id,
-      deviceId: feeder6.id,
-      status: FeedingStatus.PENDING,
-      requestedKg: 6.0,
-      isScheduled: false,
-    },
-  });
-
-  // Luna's completed feeding
-  await prisma.feeding.create({
-    data: {
-      horseId: horse7.id,
-      deviceId: feeder7.id,
-      status: FeedingStatus.COMPLETED,
-      requestedKg: 5.5,
-      isScheduled: true,
-      timeSlot: "morning",
-      startedAt: new Date("2025-01-29T06:00:00"),
-      completedAt: new Date("2025-01-29T06:10:00"),
-    },
-  });
-
-  console.log(`✅ Created 8 feeding records`);
-
   // ========================================
   // SUMMARY
   // ========================================

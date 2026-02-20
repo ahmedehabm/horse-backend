@@ -8,6 +8,8 @@ import {
 import { stopStreaming } from "../services/deviceService.js";
 import { prisma } from "../lib/prisma.js";
 
+//this setup is perfect according to that each user will have 20 => 50 horse at max
+
 const STOP_GRACE_MS = 10000; // 10 seconds
 
 // Helper functions
@@ -171,6 +173,8 @@ export function handleDisconnecting(
             await stopStreaming(user.activeStreamHorseId, uid).catch((err) => {
               console.error(`❌ Camera stop failed for ${uid}:`, err);
             });
+
+            //
           }
         }
       }

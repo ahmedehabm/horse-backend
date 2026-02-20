@@ -84,9 +84,9 @@ connectDatabase().then(() => {
     console.log(`\n🚀 Server running on port ${PORT}`);
 
     // Initialize AWS IoT
-    // initAwsIot(handleDeviceEvent);
+    initAwsIot(handleDeviceEvent);
 
-    // startScheduler();
+    startScheduler();
   });
 
   //  IMPROVED: Graceful shutdown handler
