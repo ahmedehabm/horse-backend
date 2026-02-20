@@ -1,0 +1,206 @@
+// src/iot/deviceEventHandler.ts
+import { prisma } from "../lib/prisma.js";
+import { FeedingStatus } from "@prisma/client";
+import { broadcastStatus } from "../ws/clientWs.js";
+import AppError from "../utils/appError.js";
+import { generateStreamToken, invalidateStreamToken, } from "../services/streamService.js";
+/**
+ * BIG ROUTER FUNCTION - Routes FEEDER vs CAMERA events
+ */
+export async function handleDeviceEvent(event) {
+    const { msg, thingName, topic } = event;
+    console.log(`📡 Device [${thingName}]: ${msg.type} → ${topic}`);
+    // ✅ Route by device type (topic prefix)
+    if (topic.startsWith("feeders/")) {
+        await handleFeederEvent(event);
+    }
+    else if (topic.startsWith("cameras/")) {
+        await handleCameraEvent(event);
+    }
+    else {
+        console.warn(`⚠️ Unknown device type: ${topic}`);
+    }
+}
+/**
+ * LOCAL HELPER: Handle FEEDER events ONLY (NO stream token logic!)
+ */
+async function handleFeederEvent(event) {
+    try {
+        const { msg, thingName } = event;
+        // 1) Load the device by thingName (minimal)
+        const device = await prisma.device.findUnique({
+            where: { thingName },
+            select: { id: true, deviceType: true },
+        });
+        if (!device || device.deviceType !== "FEEDER") {
+            throw new AppError("Not a valid feeder device", 404);
+        }
+        // 2) Load feeding (history)
+        const feeding = await prisma.feeding.findUnique({
+            where: { id: msg.feedingId },
+            select: { id: true, horseId: true, deviceId: true },
+        });
+        if (!feeding) {
+            throw new AppError("Feeding not found", 404);
+        }
+        // 3) Validate ownership
+        if (feeding.deviceId !== device.id) {
+            throw new AppError("This device is not assigned to this feeding", 403);
+        }
+        const horseId = feeding.horseId;
+        const feedingId = feeding.id;
+        // 4) State transitions
+        switch (msg.type) {
+            case "FEEDING_STARTED": {
+                await prisma.$transaction([
+                    prisma.feeding.update({
+                        where: { id: feedingId },
+                        data: { status: FeedingStatus.STARTED, startedAt: new Date() },
+                    }),
+                    prisma.activeFeeding.update({
+                        where: { horseId },
+                        data: { status: FeedingStatus.STARTED, startedAt: new Date() },
+                    }),
+                ]);
+                await broadcastStatus({
+                    type: "FEEDING_STATUS",
+                    horseId,
+                    feedingId,
+                    status: "STARTED",
+                });
+                break;
+            }
+            case "FEEDING_RUNNING": {
+                await prisma.$transaction([
+                    prisma.feeding.update({
+                        where: { id: feedingId },
+                        data: { status: FeedingStatus.RUNNING },
+                    }),
+                    prisma.activeFeeding.update({
+                        where: { horseId },
+                        data: { status: FeedingStatus.RUNNING },
+                    }),
+                ]);
+                await broadcastStatus({
+                    type: "FEEDING_STATUS",
+                    horseId,
+                    feedingId,
+                    status: "RUNNING",
+                });
+                break;
+            }
+            case "FEEDING_COMPLETED": {
+                const now = new Date();
+                await prisma.$transaction([
+                    prisma.feeding.update({
+                        where: { id: feedingId },
+                        data: {
+                            status: FeedingStatus.COMPLETED,
+                            completedAt: now,
+                        },
+                    }),
+                    prisma.activeFeeding.delete({
+                        where: { horseId },
+                    }),
+                    prisma.horse.update({
+                        where: { id: horseId },
+                        data: { lastFeedAt: now },
+                    }),
+                ]);
+                await broadcastStatus({
+                    type: "FEEDING_STATUS",
+                    horseId,
+                    feedingId,
+                    status: "COMPLETED",
+                });
+                break;
+            }
+            case "FEEDING_ERROR": {
+                await prisma.$transaction([
+                    prisma.feeding.update({
+                        where: { id: feedingId },
+                        data: { status: FeedingStatus.FAILED },
+                    }),
+                    prisma.activeFeeding.delete({
+                        where: { horseId },
+                    }),
+                ]);
+                await broadcastStatus({
+                    type: "FEEDING_STATUS",
+                    horseId,
+                    feedingId,
+                    status: "FAILED",
+                    errorMessage: msg.errorMessage ?? "Unknown feeder error",
+                });
+                break;
+            }
+        }
+    }
+    catch (err) {
+        console.error("Feeder event handling error", err);
+    }
+}
+/**
+ *
+ * LOCAL HELPER: Handle CAMERA events ONLY (ALL stream token logic here!)
+ *
+ */
+async function handleCameraEvent(event) {
+    try {
+        const { msg, thingName } = event;
+        // 1) Find camera device (minimal)
+        const device = await prisma.device.findUnique({
+            where: { thingName },
+            select: { id: true, deviceType: true },
+        });
+        if (!device || device.deviceType !== "CAMERA") {
+            throw new AppError("Not a valid cam", 404);
+        }
+        // 2) Find the horse that uses this camera (minimal)
+        const horse = await prisma.horse.findFirst({
+            where: { cameraId: device.id, id: msg.horseId },
+            select: { id: true },
+        });
+        if (!horse) {
+            throw new AppError("No horse linked to this camera", 404);
+        }
+        // 3) Switch: token + broadcasts only
+        switch (msg.type) {
+            case "STREAM_STARTED": {
+                const { token } = await generateStreamToken(device.id);
+                await broadcastStatus({
+                    type: "STREAM_STATUS",
+                    horseId: horse.id,
+                    status: "STARTED",
+                    streamUrl: `/stream/${token}`,
+                });
+                break;
+            }
+            // case "STREAM_STOPPED": {
+            //   await invalidateStreamToken(device.id);
+            //   await broadcastStatus({
+            //     type: "STREAM_STATUS",
+            //     horseId: horse.id,
+            //     status: "ENDED",
+            //     streamUrl: "ENDED",
+            //   });
+            //   break;
+            // }
+            case "STREAM_ERROR": {
+                await invalidateStreamToken(device.id);
+                await broadcastStatus({
+                    type: "STREAM_STATUS",
+                    horseId: horse.id,
+                    status: "ERROR",
+                    streamUrl: "ENDED",
+                    errorMessage: msg.errorMessage ?? "Unknown stream error",
+                });
+                break;
+            }
+        }
+    }
+    catch (error) {
+        console.error("BroadCasttttttttttt Error ", error);
+    }
+}
+//# sourceMappingURL=deviceEventHandler.js.map
