@@ -233,11 +233,22 @@ export const protectWs = async (
       );
     }
 
-    // ✅ Attach user to socket.data (Socket.IO way)
-    socket.data.user = user;
+    // 5) Admin has no WebSocket features — reject connection
+    if (user.role === "ADMIN") {
+      return next(new AppError("Admin does not require WebSocket access", 403));
+    }
+    // ✅ Attach only needed fields to socket.data
+    const socketUser = {
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: user.role,
+    };
+
+    socket.data.user = socketUser;
 
     // ✅ Also attach to socket.request for compatibility
-    (socket.request as any).user = user;
+    (socket.request as any).user = socketUser;
 
     next();
   } catch (error: any) {
