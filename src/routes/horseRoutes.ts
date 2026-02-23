@@ -8,6 +8,7 @@ import {
   updateHorse,
   deleteHorse,
   getHorsesStats,
+  uploadImage,
 } from "../controllers/horseController.js";
 import { restrictTo } from "../controllers/authController.js";
 import { validateRequest } from "../lib/validateRequest.js";
@@ -36,7 +37,12 @@ router
 
   .get(restrictTo("ADMIN"), getAllHorses)
 
-  .post(restrictTo("ADMIN"), validateRequest(createHorseSchema), createHorse); // Admin only
+  .post(
+    restrictTo("ADMIN"),
+    uploadImage,
+    validateRequest(createHorseSchema),
+    createHorse,
+  ); // Admin only
 
 // router.route("/unassigned").get(getMyHorses);
 

@@ -69,7 +69,7 @@ connectDatabase().then(() => {
     const server = httpServer.listen(Number(PORT), "0.0.0.0", () => {
         console.log(`\n🚀 Server running on port ${PORT}`);
         // Initialize AWS IoT
-        initAwsIot(handleDeviceEvent);
+        //initAwsIot(handleDeviceEvent);
         startScheduler();
     });
     //  IMPROVED: Graceful shutdown handler

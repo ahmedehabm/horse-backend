@@ -21,6 +21,7 @@ import { protect } from "./controllers/authController.js";
 // Error handling
 import AppError from "./utils/appError.js";
 import GlobalError from "./controllers/errorController.js";
+import path from "path";
 
 // Initialize Express app
 const app = express();
@@ -29,6 +30,9 @@ const app = express();
 
 // Security headers
 app.use(helmet());
+
+//temporary
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // CORS
 // app.use(
@@ -63,8 +67,8 @@ if (process.env.NODE_ENV === "development") {
 // app.use("/api", limiter);
 
 // Body parser
-app.use(express.json({ limit: "10kb" }));
-app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Cookie parser
 app.use(cookieParser());

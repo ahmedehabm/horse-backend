@@ -205,7 +205,7 @@ export const updateMyFeeder = async (
 
     if (!ownedFeeder) return next(new AppError("Feeder not found", 404));
 
-    // 2) req.body is already validated by validateRequest(updateFeederSchema)
+    // 2) extract required fields
     const body = req.body as {
       feederType: "MANUAL" | "SCHEDULED";
       scheduledAmountKg?: number;
@@ -215,9 +215,12 @@ export const updateMyFeeder = async (
     };
 
     // 3) Build prisma update object
-
     const updateData: Prisma.DeviceUpdateInput = {
       feederType: body.feederType,
+      scheduledAmountKg: body.scheduledAmountKg ?? null,
+      morningTime: body.morningTime ?? null,
+      dayTime: body.dayTime ?? null,
+      nightTime: body.nightTime ?? null,
     };
 
     if (body.feederType === "MANUAL") {
@@ -225,21 +228,6 @@ export const updateMyFeeder = async (
       updateData.morningTime = null;
       updateData.dayTime = null;
       updateData.nightTime = null;
-    } else {
-      // SCHEDULED
-      updateData.scheduledAmountKg = body.scheduledAmountKg!;
-
-      if (body.morningTime !== undefined) {
-        updateData.morningTime = normalizeTime(body.morningTime);
-      }
-
-      if (body.dayTime !== undefined) {
-        updateData.dayTime = normalizeTime(body.dayTime);
-      }
-
-      if (body.nightTime !== undefined) {
-        updateData.nightTime = normalizeTime(body.nightTime);
-      }
     }
 
     // 4) Update
@@ -336,6 +324,147 @@ export const getAllDevices = async (
         totalPages: Math.ceil(total / limit),
       },
       data: { devices },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getDevice = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { id } = req.params as { id: string };
+
+    const device = await prisma.device.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        thingLabel: true,
+        thingName: true,
+        location: true,
+        deviceType: true,
+        feederType: true,
+        scheduledAmountKg: true,
+        morningTime: true,
+        dayTime: true,
+        nightTime: true,
+      },
+    });
+
+    if (!device) {
+      return next(new AppError("Device not found", 404));
+    }
+
+    res.status(200).json({
+      status: "success",
+      data: { device },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Patch /api/v1/devices/:id
+ * ADMIN ONLY
+ * Body:
+ *  - thingLabel (unique)
+ *  - deviceType: CAMERA | FEEDER
+ *  - location
+ *  - feederType/morningTime/dayTime/nightTime (only for FEEDER)
+ *
+ */
+
+export const updateDevice = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { id } = req.params as { id: string };
+
+    // 1) Find the device to know its type
+    const device = await prisma.device.findUnique({
+      where: { id },
+      select: { id: true, deviceType: true },
+    });
+
+    if (!device) {
+      return next(new AppError("Device not found", 404));
+    }
+
+    // 2) Build update object based on device type
+    let updateData: Prisma.DeviceUpdateInput = {};
+
+    if (device.deviceType === "CAMERA") {
+      const body = req.body as {
+        thingLabel?: string;
+        location?: string;
+      };
+
+      updateData = {
+        ...(body.thingLabel !== undefined && { thingLabel: body.thingLabel }),
+        ...(body.location !== undefined && { location: body.location }),
+      };
+    }
+
+    if (device.deviceType === "FEEDER") {
+      const body = req.body as {
+        thingLabel?: string;
+        location?: string;
+        feederType?: "MANUAL" | "SCHEDULED";
+        scheduledAmountKg?: number;
+        morningTime?: string;
+        dayTime?: string;
+        nightTime?: string;
+      };
+
+      updateData = {
+        ...(body.thingLabel !== undefined && { thingLabel: body.thingLabel }),
+        ...(body.location !== undefined && { location: body.location }),
+        ...(body.feederType !== undefined && { feederType: body.feederType }),
+      };
+
+      // Only update schedule fields if feederType is provided
+      if (body.feederType === "MANUAL") {
+        updateData.scheduledAmountKg = null;
+        updateData.morningTime = null;
+        updateData.dayTime = null;
+        updateData.nightTime = null;
+      }
+
+      if (body.feederType === "SCHEDULED") {
+        updateData.scheduledAmountKg = body.scheduledAmountKg ?? null;
+        updateData.morningTime = body.morningTime ?? null;
+        updateData.dayTime = body.dayTime ?? null;
+        updateData.nightTime = body.nightTime ?? null;
+      }
+    }
+
+    // 3) Update
+    const updated = await prisma.device.update({
+      where: { id: device.id },
+      data: updateData,
+      select: {
+        id: true,
+        thingLabel: true,
+        thingName: true,
+        location: true,
+        deviceType: true,
+        feederType: true,
+        scheduledAmountKg: true,
+        morningTime: true,
+        dayTime: true,
+        nightTime: true,
+      },
+    });
+
+    return res.status(200).json({
+      status: "success",
+      data: { device: updated },
     });
   } catch (err) {
     next(err);
@@ -451,6 +580,109 @@ export const createDevice = async (
       },
     });
   } catch (err: any) {
+    next(err);
+  }
+};
+
+//PATCH /api/devices/unassign/:id
+export const forceUnassignDevice = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { id } = req.params as { id: string };
+
+    // 1) Find the device
+    const device = await prisma.device.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        deviceType: true,
+        thingLabel: true,
+        horsesAsFeeder: {
+          select: { id: true, name: true },
+        },
+        horsesAsCamera: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+
+    if (!device) {
+      return next(new AppError("Device not found", 404));
+    }
+
+    // 2) Check if device is assigned
+    const isFeederAssigned = device.horsesAsFeeder.length > 0;
+
+    const isCameraAssigned = device.horsesAsCamera.length > 0;
+
+    if (!isFeederAssigned && !isCameraAssigned) {
+      return res.status(200).json({
+        status: "success",
+        message: "Device is already unassigned",
+        data: { device },
+      });
+    }
+
+    // 3) Unassign the device from the horse
+    if (device.deviceType === "FEEDER" && isFeederAssigned) {
+      const horse = device.horsesAsFeeder[0]!;
+
+      await prisma.horse.update({
+        where: { id: horse.id },
+        data: { feederId: null },
+      });
+
+      return res.status(200).json({
+        status: "success",
+        message: `Feeder unassigned from ${horse.name}`,
+        data: {
+          device: {
+            id: device.id,
+            thingLabel: device.thingLabel,
+            deviceType: device.deviceType,
+          },
+          unassignedFrom: {
+            horseId: horse.id,
+            horseName: horse.name,
+          },
+        },
+      });
+    }
+
+    if (device.deviceType === "CAMERA" && isCameraAssigned) {
+      const horse = device.horsesAsCamera[0]!;
+
+      await prisma.horse.update({
+        where: { id: horse.id },
+        data: { cameraId: null },
+      });
+
+      return res.status(200).json({
+        status: "success",
+        message: `Camera unassigned from ${horse.name}`,
+        data: {
+          device: {
+            id: device.id,
+            thingLabel: device.thingLabel,
+            deviceType: device.deviceType,
+          },
+          unassignedFrom: {
+            horseId: horse.id,
+            horseName: horse.name,
+          },
+        },
+      });
+    }
+    // Should not reach here, but just in case
+    return res.status(200).json({
+      status: "success",
+      message: "Device unassigned successfully",
+      data: { device },
+    });
+  } catch (err) {
     next(err);
   }
 };

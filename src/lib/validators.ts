@@ -43,11 +43,11 @@ export const createHorseSchema = z.object({
     .min(2, "Horse name must be at least 2 characters")
     .max(50),
   breed: z
-    .string({ error: "BReed" })
+    .string({ error: "breed is required" })
     .min(2, "Breed must be at least 2 characters")
     .max(50),
   age: z.coerce
-    .number({ error: "AGE" })
+    .number({ error: "age is required" })
     .int("Age must be an integer")
     .min(1, "Age must be 1 or greater")
     .max(40, "Age must be 40 or less"),
@@ -57,17 +57,9 @@ export const createHorseSchema = z.object({
     .max(100),
 
   // ✅ NEW: REQUIRED feederId & cameraId (1:1 relationship)
-  feederId: z
-    .string({ error: "fedeer" })
-    .uuid("Must be a valid Device UUID")
-    .optional(),
-  cameraId: z
-    .string({ error: "camera" })
-    .uuid("Must be a valid Device UUID")
-    .optional(),
-  ownerId: z.string({ error: "ONWEr" }).uuid("Must be a valid Device UUID"),
-
-  // image: z.string().url("Must be a valid URL").optional(),
+  feederId: z.string().uuid("Must be a valid Device UUID").optional(),
+  cameraId: z.string().uuid("Must be a valid Device UUID").optional(),
+  ownerId: z.string().uuid("Must be a valid Device UUID"),
 });
 
 export const updateHorseSchema = createHorseSchema.partial();
@@ -163,6 +155,99 @@ export const createDeviceSchema = z
     },
   );
 
+//for admin to update devices in general
+export const updateDeviceSchema = z
+  .object({
+    thingLabel: z
+      .string()
+      .min(5, "Device name must be at least 5 characters")
+      .max(50),
+
+    location: z
+      .string()
+      .min(2, "Location must be at least 2 characters")
+      .max(100),
+
+    // ❌ No deviceType — cannot change device type after creation
+
+    // FEEDER-SPECIFIC
+    feederType: z.enum(["MANUAL", "SCHEDULED"]).optional(),
+
+    scheduledAmountKg: z
+      .number()
+      .min(0.1, "Amount must be at least 0.1 kg")
+      .max(50, "Amount cannot exceed 50 kg")
+      .optional(),
+
+    morningTime: z
+      .string()
+      .regex(
+        /^([0-1]?[0-9]|2[0-3]):00$/,
+        "Must be on the hour (e.g., 04:00, 05:00, 16:00)",
+      )
+      .or(z.literal(""))
+      .optional(),
+
+    dayTime: z
+      .string()
+      .regex(
+        /^([0-1]?[0-9]|2[0-3]):00$/,
+        "Must be on the hour (e.g., 04:00, 05:00, 16:00)",
+      )
+      .or(z.literal(""))
+      .optional(),
+
+    nightTime: z
+      .string()
+      .regex(
+        /^([0-1]?[0-9]|2[0-3]):00$/,
+        "Must be on the hour (e.g., 04:00, 05:00, 16:00)",
+      )
+      .or(z.literal(""))
+      .optional(),
+  })
+  .refine(
+    (data) => {
+      // If switching to SCHEDULED, scheduledAmountKg is required
+      if (data.feederType === "SCHEDULED") {
+        return data.scheduledAmountKg !== undefined;
+      }
+      return true;
+    },
+    {
+      message: "scheduledAmountKg is required for SCHEDULED feeders",
+      path: ["scheduledAmountKg"],
+    },
+  )
+  .refine(
+    (data) => {
+      // If switching to SCHEDULED, at least one time must be set
+      if (data.feederType === "SCHEDULED") {
+        return data.morningTime || data.dayTime || data.nightTime;
+      }
+      return true;
+    },
+    {
+      message: "At least one feeding time must be set for SCHEDULED feeders",
+      path: ["morningTime"],
+    },
+  )
+  .refine(
+    (data) => {
+      // Check for duplicate times
+      const times = [data.morningTime, data.dayTime, data.nightTime].filter(
+        (t) => t && t !== "",
+      );
+      const uniqueTimes = new Set(times);
+      return times.length === uniqueTimes.size;
+    },
+    {
+      message: "Feeding times cannot be duplicated",
+      path: ["dayTime"],
+    },
+  );
+
+// for USER to update his feeders
 export const updateFeederSchema = z
   .object({
     feederType: z.enum(["MANUAL", "SCHEDULED"]).default("MANUAL"),
@@ -242,17 +327,6 @@ export const updateFeederSchema = z
   );
 
 // ========== FEEDING VALIDATORS ==========
-export const createFeedingSchema = z.object({
-  amountKg: z
-    .number()
-    .min(0.01, "Amount must be greater than 0.01kg")
-    .max(100, "Amount must be less than 100kg"),
-  notes: z.string().max(500).optional(),
-  // ✅ deviceId instead of feederId (polymorphic)
-  deviceId: z.string().uuid("Must be a valid Device UUID"),
-});
-
-export const updateFeedingSchema = createFeedingSchema.partial();
 
 export const FeedNowSchema = z.object({
   horseId: z.uuid("Not Valid UUID"),
@@ -271,4 +345,3 @@ export type CreateHorseInput = z.infer<typeof createHorseSchema>;
 export type UpdateHorseInput = z.infer<typeof updateHorseSchema>;
 export type CreateDeviceInput = z.infer<typeof createDeviceSchema>;
 // export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;
-export type CreateFeedingInput = z.infer<typeof createFeedingSchema>;

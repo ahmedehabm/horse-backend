@@ -8,14 +8,21 @@ import {
   getMyFeeders,
   getMyFeeder,
   updateMyFeeder,
+  forceUnassignDevice,
+  getDevice,
+  updateDevice,
 } from "../controllers/deviceController.js";
 
 import { validateRequest } from "../lib/validateRequest.js";
-import { createDeviceSchema, updateFeederSchema } from "../lib/validators.js";
+import {
+  createDeviceSchema,
+  updateDeviceSchema,
+  updateFeederSchema,
+} from "../lib/validators.js";
 
 const router = express.Router();
 
-// 1) options (admin)
+// 1) options (admin) to create/update horses to assign them to the feeders/cameras
 router.get("/options", restrictTo("ADMIN"), getDeviceOptions);
 
 // 2) my feeders list (USER only; function blocks ADMIN)
@@ -34,12 +41,26 @@ router.patch(
 // 5) all devices table (admin)
 router.get("/", restrictTo("ADMIN"), getAllDevices);
 
-// 6) create a device feeder/camera (admin)
+// 6) get device for edit (admin)
+router.get("/:id", restrictTo("ADMIN"), getDevice);
+
+// 7) update device (admin)
+router.patch(
+  "/:id",
+  restrictTo("ADMIN"),
+  validateRequest(updateDeviceSchema),
+  updateDevice,
+);
+
+// 8) create a device feeder/camera (admin)
 router.post(
   "/",
   restrictTo("ADMIN"),
   validateRequest(createDeviceSchema),
   createDevice,
 );
+
+// 9) force unassign device from horse (admin only)
+router.patch("/unassign/:id", restrictTo("ADMIN"), forceUnassignDevice);
 
 export default router;

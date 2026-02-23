@@ -1,12 +1,38 @@
 // src/controllers/horseController.ts
 import { type NextFunction, type Request, type Response } from "express";
+import multer from "multer";
 
 import AppError from "../utils/appError.js";
 
 import { prisma } from "../lib/prisma.js";
 
-import APIFeatures, { parseFields } from "../utils/apiFeatures.js";
-import { FeedingStatus, type Prisma } from "@prisma/client";
+import { parseFields } from "../utils/apiFeatures.js";
+import { type Prisma } from "@prisma/client";
+import { uploadImageFs } from "../lib/uploadImageFs.js";
+
+const storage = multer.memoryStorage();
+
+const fileFilter = (
+  _req: any,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback,
+) => {
+  const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+
+  if (allowed.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new AppError("Only jpg, png, jpeg, webp supported", 400));
+  }
+};
+
+export const uploadImage = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+}).single("image");
 
 export const getAllHorses = async (
   req: Request,
@@ -17,19 +43,23 @@ export const getAllHorses = async (
     const { page = 1, limit = 10 } = req.query;
 
     // Define DEFAULT fields (relations included)
-    const select = {
+    const select: Prisma.HorseSelect = {
       id: true,
       name: true,
       image: true,
-      breed: true,
-      age: true,
-      lastFeedAt: true,
-      ownerId: true,
       owner: {
         select: {
-          id: true,
           name: true,
-          email: true,
+        },
+      },
+      camera: {
+        select: {
+          thingLabel: true,
+        },
+      },
+      feeder: {
+        select: {
+          thingLabel: true,
         },
       },
     };
@@ -48,7 +78,7 @@ export const getAllHorses = async (
       prisma.horse.count(),
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       status: "success",
       results: horses.length,
       pagination: {
@@ -113,7 +143,7 @@ export const getMyHorses = async (
       prisma.horse.count({ where }),
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       status: "success",
       results: horses.length,
       pagination: {
@@ -192,7 +222,7 @@ export const getHorse = async (
 
     if (!horse) return next(new AppError("No horse found", 404));
 
-    res.status(200).json({ status: "success", data: { horse } });
+    return res.status(200).json({ status: "success", data: { horse } });
   } catch (error) {
     next(error);
   }
@@ -204,58 +234,70 @@ export const createHorse = async (
   next: NextFunction,
 ) => {
   try {
-    const { name, age, breed, location, image, feederId, cameraId, ownerId } =
+    const { name, age, breed, location, feederId, cameraId, ownerId } =
       req.body;
 
-    // ✅ VALIDATION: Ensure feederId is a FEEDER device
-    if (feederId) {
-      const feederDevice = await prisma.device.findUnique({
-        where: { id: feederId },
-        select: { deviceType: true },
+    const horse = await prisma.$transaction(async (tx) => {
+      //  VALIDATION: Ensure feederId is a FEEDER device
+      if (feederId) {
+        const feederDevice = await tx.device.findUnique({
+          where: { id: feederId },
+          select: { deviceType: true },
+        });
+
+        if (!feederDevice) {
+          throw new AppError("Feeder device not found", 404);
+        }
+
+        if (feederDevice.deviceType !== "FEEDER") {
+          throw new AppError("Device must be of type FEEDER", 400);
+        }
+      }
+
+      // VALIDATION: Ensure cameraId is a CAMERA device
+      if (cameraId) {
+        const cameraDevice = await tx.device.findUnique({
+          where: { id: cameraId },
+          select: { deviceType: true },
+        });
+
+        if (!cameraDevice) {
+          throw new AppError("Camera device not found", 404);
+        }
+
+        if (cameraDevice.deviceType !== "CAMERA") {
+          throw new AppError("Device must be of type CAMERA", 400);
+        }
+      }
+
+      // Upload image to AWS (inside transaction — if it fails, everything rolls back)
+      let imageUrl: string | undefined;
+
+      if (req.file) {
+        imageUrl = await uploadImageFs(req.file);
+      }
+
+      //  Create horse record
+      const created = await tx.horse.create({
+        data: {
+          name,
+          location,
+          image: imageUrl!,
+          breed,
+          cameraId,
+          feederId,
+          age,
+          ownerId,
+        },
+        include: {
+          owner: { select: { id: true, name: true } },
+        },
       });
 
-      if (!feederDevice) {
-        return next(new AppError("Feeder device not found", 404));
-      }
-
-      if (feederDevice.deviceType !== "FEEDER") {
-        return next(new AppError("Device must be of type FEEDER", 400));
-      }
-    }
-
-    // ✅ VALIDATION: Ensure cameraId is a CAMERA device
-    if (cameraId) {
-      const cameraDevice = await prisma.device.findUnique({
-        where: { id: cameraId },
-        select: { deviceType: true },
-      });
-
-      if (!cameraDevice) {
-        return next(new AppError("Camera device not found", 404));
-      }
-
-      if (cameraDevice.deviceType !== "CAMERA") {
-        return next(new AppError("Device must be of type CAMERA", 400));
-      }
-    }
-
-    const horse = await prisma.horse.create({
-      data: {
-        name,
-        location,
-        image,
-        breed,
-        cameraId,
-        feederId,
-        age,
-        ownerId,
-      },
-      include: {
-        owner: { select: { id: true, name: true } },
-      },
+      return created;
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       status: "success",
       data: { horse },
     });
@@ -387,130 +429,6 @@ export const deleteHorse = async (
     next(error);
   }
 };
-// MIDDLEWARE
-export const restrictToHorseOwner = async (
-  req: any,
-  res: any,
-  next: NextFunction,
-) => {
-  try {
-    const { id } = req.params;
-    const userId = req.user!.id;
-
-    const horse = await prisma.horse.findFirst({
-      where: { id, ownerId: userId },
-    });
-
-    if (!horse) {
-      return next(
-        new AppError("You do not have permission to access this horse", 403),
-      );
-    }
-
-    req.horse = horse;
-    next();
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const bulkAssignHorsesToUser = async (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) => {
-  try {
-    const { userId } = req.body;
-    const horseIds = req.body.horseIds as string[];
-
-    // Validate inputs
-    if (!userId || !Array.isArray(horseIds) || horseIds.length === 0) {
-      return res.status(400).json({
-        status: "error",
-        message: "userId and horseIds array are required",
-      });
-    }
-
-    // Verify user exists
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, name: true, role: true },
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        status: "error",
-        message: "User not found",
-      });
-    }
-
-    // Check horses exist and are unassigned using transaction
-    const horsesToUpdate = await prisma.$transaction(async (tx) => {
-      const unassignedHorses = await tx.horse.findMany({
-        where: {
-          id: { in: horseIds },
-          ownerId: null, // Only unassigned horses
-        },
-        select: {
-          id: true,
-          name: true,
-          ownerId: true,
-        },
-      });
-
-      // Validate all requested horses are unassigned and exist
-      const foundHorseIds = unassignedHorses.map((h) => h.id);
-      const missingHorses = horseIds.filter(
-        (id) => !foundHorseIds.includes(id),
-      );
-      const alreadyAssigned = horseIds.filter(
-        (id) => unassignedHorses.find((h) => h.id === id)?.ownerId !== null,
-      );
-
-      if (missingHorses.length > 0) {
-        throw new Error(`Horses not found: ${missingHorses.join(", ")}`);
-      }
-
-      if (alreadyAssigned.length > 0) {
-        throw new Error(
-          `Horses already assigned: ${alreadyAssigned.join(", ")}`,
-        );
-      }
-
-      return unassignedHorses;
-    });
-
-    // Bulk update all horses to same user
-    const updatedHorses = await prisma.horse.updateMany({
-      where: {
-        id: { in: horseIds },
-      },
-      data: {
-        ownerId: userId,
-      },
-    });
-
-    // Fetch updated horses with owner info
-    const horsesWithOwner = await prisma.horse.findMany({
-      where: { id: { in: horseIds } },
-      include: {
-        owner: { select: { id: true, name: true, username: true } },
-        feeder: true,
-      },
-    });
-
-    res.status(200).json({
-      status: "success",
-      message: `Successfully assigned ${horsesToUpdate.length} horses to ${user.name}`,
-      data: {
-        horses: horsesWithOwner,
-        count: updatedHorses.count,
-      },
-    });
-  } catch (error: any) {
-    next(error);
-  }
-};
 
 export async function getHorsesStats(
   req: Request,
@@ -540,7 +458,7 @@ export async function getHorsesStats(
 
     let activeStream: null | {
       horseId: string;
-      status: "STARTED" | "PENDING" | "IDLE";
+      status: "STARTED" | "PENDING";
       streamToken?: string;
     } = null;
 
