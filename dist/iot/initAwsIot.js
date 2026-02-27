@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import mqtt, { MqttClient } from "mqtt";
 import { emitToRoom } from "../ws/clientWs.js";
+import { setWeight } from "../services/weightCache.js";
 // ============================================================================
 // CLIENT STATE
 // ============================================================================
@@ -157,7 +158,7 @@ function setupMessageHandlers() {
                 console.warn(`⚠️ Missing thingName in topic: ${topic}`);
                 return;
             }
-            // ---- WEIGHT STREAM: feeders/{thingName}/weight-event ----
+            // ---- WEIGHT STREAM: feeders/{thingName}/weight-events ----
             if (deviceType === "feeders" && action === "weight-events") {
                 const text = payload.toString("utf8").trim();
                 let weightValue = null;
@@ -181,6 +182,8 @@ function setupMessageHandlers() {
                     console.warn("⚠️ Invalid weight payload", { topic, text });
                     return;
                 }
+                //set the weight in the queue cache to be accessed in the server
+                setWeight(thingName, weightValue);
                 emitToRoom(`feeder-weight:${thingName}`, "FEEDER_WEIGHT", {
                     type: "FEEDER_WEIGHT",
                     thingName,

@@ -22,6 +22,7 @@ import { WebSocketServer } from "ws";
 import { initAwsIot } from "./iot/initAwsIot.js";
 import { handleDeviceEvent } from "./iot/deviceEventHandler.js";
 import { startScheduler, stopScheduler } from "./scheduler/index.js";
+import { initMockMqtt } from "./lib/test-weight.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -80,11 +81,13 @@ connectDatabase().then(() => {
   });
 
   // 5. Start server
-  const server = httpServer.listen(Number(PORT), "0.0.0.0", () => {
+  const server = httpServer.listen(Number(PORT), "0.0.0.0", async () => {
     console.log(`\n🚀 Server running on port ${PORT}`);
 
     // Initialize AWS IoT
     initAwsIot(handleDeviceEvent);
+
+    // initMockMqtt(handleDeviceEvent);
 
     startScheduler();
   });
@@ -101,7 +104,7 @@ connectDatabase().then(() => {
 
       // 2) stop schedualing
 
-      // await stopScheduler();
+      await stopScheduler();
 
       // 3. Close WebSocket connections
       io.close(() => {

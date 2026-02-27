@@ -50,8 +50,8 @@ if (process.env.NODE_ENV === "development") {
 // });
 // app.use("/api", limiter);
 // Body parser
-app.use(express.json({ limit: "10kb" }));
-app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 // Cookie parser
 app.use(cookieParser());
 // 2) HTTP ROUTES
@@ -63,8 +63,6 @@ app.use("/stream", streamRoutes);
 app.use("/api/v1/horses", horseRoutes);
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/devices", deviceRoutes);
-//no need right now
-// app.use("/api/v1/feedings", feedingRoutes);
 // 4) CATCH UNHANDLED ROUTES
 app.all("/{*any}", (req, res, next) => {
     next(new AppError(`cant find the requeted route ${req.originalUrl} on the server`, 404));

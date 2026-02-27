@@ -62,6 +62,7 @@ export async function initializeWeightStreaming(socket, userId, io) {
     }
     catch (err) {
         console.error("❌ Weight streaming init failed", { userId, err });
+        throw err;
     }
 }
 // ============================================
@@ -159,6 +160,7 @@ export async function handleLogout(socket, userId, io, ack) {
     catch (err) {
         console.error("❌ LOGOUT failed", { userId, err });
         ack?.({ ok: false, error: err?.message ?? "LOGOUT failed" });
+        throw err;
     }
     finally {
         socket.disconnect(true);

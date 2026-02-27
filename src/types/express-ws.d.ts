@@ -18,5 +18,11 @@ declare module "express-serve-static-core" {
       role: "ADMIN" | "USER";
       username: string;
     };
+    streamData?: {
+      deviceId: string;
+      thingName: string;
+      horseId: string;
+      horseOwnerId: string | null;
+    };
   }
 }

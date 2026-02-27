@@ -330,7 +330,7 @@ export const updateFeederSchema = z
 
 export const FeedNowSchema = z.object({
   horseId: z.uuid("Not Valid UUID"),
-  amountKg: z.number().positive().max(50),
+  amountKg: z.number().positive(),
 });
 
 export const StartStreamSchema = z.object({

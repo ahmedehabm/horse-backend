@@ -15,4 +15,11 @@ export declare const restrictTo: (...roles: string[]) => (req: Request, res: Res
  */
 export declare const protectWs: (socket: Socket, next: (err?: ExtendedError) => void) => Promise<void>;
 export declare const getAllUsers: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+/**
+ * DELETE /users/:id?deleteDevices=true|false
+ *
+ * - deleteDevices=false (default): delete user only (horses cascade, devices remain)
+ * - deleteDevices=true: delete user + all devices connected to user's horses (atomic transaction)
+ */
+export declare const deleteUser: (req: Request, res: Response, next: NextFunction) => Promise<void | Response<any, Record<string, any>>>;
 //# sourceMappingURL=authController.d.ts.map

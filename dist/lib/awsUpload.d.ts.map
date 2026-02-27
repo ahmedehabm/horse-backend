@@ -1,0 +1,1 @@
+{"version":3,"file":"awsUpload.d.ts","sourceRoot":"","sources":["../../src/lib/awsUpload.ts"],"names":[],"mappings":"AAGA,eAAO,MAAM,cAAc,GAAU,MAAM,OAAO,CAAC,MAAM,CAAC,IAAI,oBAsB7D,CAAC;AAEF,eAAO,MAAM,kBAAkB,GAC7B,WAAW,MAAM,EACjB,YAAY,MAAM,KACjB,OAAO,CAAC;IAAE,cAAc,EAAE,MAAM,CAAC;IAAC,UAAU,EAAE,MAAM,CAAA;CAAE,CAiCxD,CAAC"}

@@ -48,6 +48,18 @@ export declare const createDeviceSchema: z.ZodObject<{
     dayTime: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodLiteral<"">]>>;
     nightTime: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodLiteral<"">]>>;
 }, z.core.$strip>;
+export declare const updateDeviceSchema: z.ZodObject<{
+    thingLabel: z.ZodString;
+    location: z.ZodString;
+    feederType: z.ZodOptional<z.ZodEnum<{
+        MANUAL: "MANUAL";
+        SCHEDULED: "SCHEDULED";
+    }>>;
+    scheduledAmountKg: z.ZodOptional<z.ZodNumber>;
+    morningTime: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodLiteral<"">]>>;
+    dayTime: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodLiteral<"">]>>;
+    nightTime: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodLiteral<"">]>>;
+}, z.core.$strip>;
 export declare const updateFeederSchema: z.ZodObject<{
     feederType: z.ZodDefault<z.ZodEnum<{
         MANUAL: "MANUAL";
@@ -57,16 +69,6 @@ export declare const updateFeederSchema: z.ZodObject<{
     morningTime: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodLiteral<"">]>>;
     dayTime: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodLiteral<"">]>>;
     nightTime: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodLiteral<"">]>>;
-}, z.core.$strip>;
-export declare const createFeedingSchema: z.ZodObject<{
-    amountKg: z.ZodNumber;
-    notes: z.ZodOptional<z.ZodString>;
-    deviceId: z.ZodString;
-}, z.core.$strip>;
-export declare const updateFeedingSchema: z.ZodObject<{
-    amountKg: z.ZodOptional<z.ZodNumber>;
-    notes: z.ZodOptional<z.ZodOptional<z.ZodString>>;
-    deviceId: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const FeedNowSchema: z.ZodObject<{
     horseId: z.ZodUUID;
@@ -81,5 +83,4 @@ export type UpdatePasswordInput = z.infer<typeof updatePasswordSchema>;
 export type CreateHorseInput = z.infer<typeof createHorseSchema>;
 export type UpdateHorseInput = z.infer<typeof updateHorseSchema>;
 export type CreateDeviceInput = z.infer<typeof createDeviceSchema>;
-export type CreateFeedingInput = z.infer<typeof createFeedingSchema>;
 //# sourceMappingURL=validators.d.ts.map

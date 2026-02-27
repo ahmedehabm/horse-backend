@@ -48,16 +48,22 @@ router
 
 // 3. HORSE-SPECIFIC ROUTES (owner or admin)
 /**
- * GET  /api/v1/horses/:id   → View horse (owner/admin)
- * PATCH /api/v1/horses/:id  → Update horse (owner/admin)
+ * GET  /api/v1/horses/:id   → View horse (admin)
+ * PATCH /api/v1/horses/:id  → Update horse (admin)
  * DELETE /api/v1/horses/:id → Delete horse (admin only)
  */
+
 router
   .route("/:id")
 
-  .get(getHorse) // Owner or admin
+  .get(restrictTo("ADMIN"), getHorse) // Admin only
 
-  .patch(restrictTo("ADMIN"), validateRequest(updateHorseSchema), updateHorse) // Admin only
+  .patch(
+    restrictTo("ADMIN"),
+    uploadImage,
+    validateRequest(updateHorseSchema),
+    updateHorse,
+  ) // Admin only
 
   .delete(restrictTo("ADMIN"), deleteHorse); // Admin only
 

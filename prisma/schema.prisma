@@ -1,4 +1,4 @@
-// prisma/schema.prisma - Horse Feeder Schema (with Live Feeding Snapshot)
+// prisma/schema.prisma — Version 2 (Cascade delete horses with user)
 
 generator client {
   provider = "prisma-client-js"
@@ -41,7 +41,7 @@ enum FeedingStatus {
 model User {
   id                   String    @id @default(uuid())
   name                 String?
-  username                String    @unique
+  username             String    @unique
   password             String
   passwordChangedAt    DateTime?
   passwordResetToken   String?   @unique
@@ -64,30 +64,30 @@ model User {
 // ========================================
 model Device {
   id                  String      @id @default(uuid())
-  deviceType           DeviceType
-  thingLabel           String      @unique
-  thingName            String      @unique @default(cuid())
-  location             String
+  deviceType          DeviceType
+  thingLabel          String      @unique
+  thingName           String      @unique @default(cuid())
+  location            String
 
   // FEEDER-specific
-  feederType           FeederType  @default(MANUAL)
-  morningTime          String?
-  dayTime              String?
-  nightTime            String?
-  scheduledAmountKg    Float?
+  feederType          FeederType  @default(MANUAL)
+  morningTime         String?
+  dayTime             String?
+  nightTime           String?
+  scheduledAmountKg   Float?
 
   // CAMERA-specific
-  streamToken          String?      @unique
-  streamTokenIsValid   Boolean?
+  streamToken         String?     @unique
+  streamTokenIsValid  Boolean?
 
   // Relations
-  horsesAsFeeder       Horse[]      @relation("HorseFeeder")
-  horsesAsCamera       Horse[]      @relation("HorseCamera")
-  feedings             Feeding[]
-  activeFeedings       ActiveFeeding[]
+  horsesAsFeeder      Horse[]     @relation("HorseFeeder")
+  horsesAsCamera      Horse[]     @relation("HorseCamera")
+  feedings            Feeding[]
+  activeFeedings      ActiveFeeding[]
 
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
 
   @@index([thingName])
   @@index([deviceType])
@@ -105,22 +105,25 @@ model Horse {
   image          String?
   location       String
 
+  //  Delete user → ALL user's horses get deleted
   owner          User?         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId        String?
 
+  //  Delete device → horse.feederId becomes null (device freed, horse survives)
   feederId       String?       @unique
-  feeder         Device?       @relation("HorseFeeder", fields: [feederId], references: [id])
+  feeder         Device?       @relation("HorseFeeder", fields: [feederId], references: [id], onDelete: SetNull)
 
+  //  Delete device → horse.cameraId becomes null (device freed, horse survives)
   cameraId       String?       @unique
-  camera         Device?       @relation("HorseCamera", fields: [cameraId], references: [id])
+  camera         Device?       @relation("HorseCamera", fields: [cameraId], references: [id], onDelete: SetNull)
 
-  lastFeedAt      DateTime?
+  lastFeedAt     DateTime?
 
-  feedings        Feeding[]
-  activeFeeding   ActiveFeeding?
+  feedings       Feeding[]
+  activeFeeding  ActiveFeeding?
 
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   @@index([ownerId])
   @@index([feederId])
@@ -162,14 +165,12 @@ model Feeding {
 model ActiveFeeding {
   id            String         @id @default(uuid())
 
-  // One active feeding per horse (ENFORCED)
   horse         Horse          @relation(fields: [horseId], references: [id], onDelete: Cascade)
   horseId       String         @unique
 
   device        Device         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   deviceId      String
 
-  // Pointer to history record
   feedingId     String
   status        FeedingStatus
 

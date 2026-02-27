@@ -76,6 +76,7 @@ export type ClientMessage = FeedNowMessage | StartStreamMessage;
  */
 export type FeedingStatusPayload = {
     horseId: string;
+    ownerId: string;
     status: string;
     feedingId: string;
     errorMessage?: string;
@@ -87,6 +88,7 @@ export type FeedingStatusPayload = {
  */
 export type StreamStatusPayload = {
     horseId: string;
+    ownerId: string;
     status: string;
     streamUrl: string;
     errorMessage?: string;

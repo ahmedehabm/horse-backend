@@ -1,1 +1,1 @@
-{"version":3,"file":"index.d.ts","sourceRoot":"","sources":["../../src/scheduler/index.ts"],"names":[],"mappings":"AACA,OAAO,IAAI,MAAM,MAAM,CAAC;AAmBxB;;;GAGG;AACH,eAAO,MAAM,SAAS,MAkDpB,CAAC;AAEH;;GAEG;AACH,wBAAgB,cAAc,SAE7B;AAED;;GAEG;AACH,wBAAsB,aAAa,kBAElC"}
+{"version":3,"file":"index.d.ts","sourceRoot":"","sources":["../../src/scheduler/index.ts"],"names":[],"mappings":"AACA,OAAO,IAAI,MAAM,MAAM,CAAC;AAqBxB;;;GAGG;AACH,eAAO,MAAM,SAAS,MA+CpB,CAAC;AAEH;;GAEG;AACH,wBAAgB,cAAc,SAE7B;AAED;;GAEG;AACH,wBAAsB,aAAa,kBAElC"}

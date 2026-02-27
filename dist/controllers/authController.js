@@ -207,6 +207,11 @@ export const getAllUsers = async (req, res, next) => {
                     id: true,
                     name: true,
                     username: true,
+                    _count: {
+                        select: {
+                            horses: true,
+                        },
+                    },
                 },
             }),
             prisma.user.count({ where }),
@@ -225,6 +230,69 @@ export const getAllUsers = async (req, res, next) => {
     }
     catch (err) {
         next(err);
+    }
+};
+// src/controllers/userController.ts
+/**
+ * DELETE /users/:id?deleteDevices=true|false
+ *
+ * - deleteDevices=false (default): delete user only (horses cascade, devices remain)
+ * - deleteDevices=true: delete user + all devices connected to user's horses (atomic transaction)
+ */
+export const deleteUser = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const deleteDevices = req.query.deleteDevices === "true";
+        if (!deleteDevices) {
+            const user = await prisma.user.findUnique({ where: { id } });
+            if (!user) {
+                return next(new AppError("User not found", 404));
+            }
+            await prisma.user.delete({ where: { id } });
+            return res.sendStatus(204);
+        }
+        // Atomic transaction: all or nothing
+        await prisma.$transaction(async (tx) => {
+            const user = await tx.user.findUnique({
+                where: { id },
+                select: {
+                    id: true,
+                    horses: {
+                        select: {
+                            feederId: true,
+                            cameraId: true,
+                        },
+                    },
+                },
+            });
+            if (!user) {
+                throw new AppError("User not found", 404);
+            }
+            // Collect all unique device IDs
+            const deviceIds = new Set();
+            user.horses.forEach((horse) => {
+                if (horse.feederId)
+                    deviceIds.add(horse.feederId);
+                if (horse.cameraId)
+                    deviceIds.add(horse.cameraId);
+            });
+            const deviceIdArray = Array.from(deviceIds);
+            // Delete user first (horses cascade automatically)
+            await tx.user.delete({ where: { id: user.id } });
+            // Then delete devices (if any)
+            if (deviceIdArray.length > 0) {
+                await tx.device.deleteMany({
+                    where: { id: { in: deviceIdArray } },
+                });
+            }
+        }, {
+            isolationLevel: "Serializable",
+            timeout: 15000,
+        });
+        return res.sendStatus(204);
+    }
+    catch (error) {
+        next(error);
     }
 };
 //# sourceMappingURL=authController.js.map

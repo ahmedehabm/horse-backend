@@ -1,6 +1,7 @@
 import { Prisma, DeviceType, FeederType } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import AppError from "../utils/appError.js";
+import { provisionAwsDevice } from "../lib/awsUpload.js";
 const toBool = (v) => String(v).toLowerCase() === "true";
 const toInt = (v, fallback) => {
     const n = parseInt(String(v ?? ""), 10);
@@ -167,30 +168,21 @@ export const updateMyFeeder = async (req, res, next) => {
         });
         if (!ownedFeeder)
             return next(new AppError("Feeder not found", 404));
-        // 2) req.body is already validated by validateRequest(updateFeederSchema)
+        // 2) extract required fields
         const body = req.body;
         // 3) Build prisma update object
         const updateData = {
             feederType: body.feederType,
+            scheduledAmountKg: body.scheduledAmountKg ?? null,
+            morningTime: body.morningTime ?? null,
+            dayTime: body.dayTime ?? null,
+            nightTime: body.nightTime ?? null,
         };
         if (body.feederType === "MANUAL") {
             updateData.scheduledAmountKg = null;
             updateData.morningTime = null;
             updateData.dayTime = null;
             updateData.nightTime = null;
-        }
-        else {
-            // SCHEDULED
-            updateData.scheduledAmountKg = body.scheduledAmountKg;
-            if (body.morningTime !== undefined) {
-                updateData.morningTime = normalizeTime(body.morningTime);
-            }
-            if (body.dayTime !== undefined) {
-                updateData.dayTime = normalizeTime(body.dayTime);
-            }
-            if (body.nightTime !== undefined) {
-                updateData.nightTime = normalizeTime(body.nightTime);
-            }
         }
         // 4) Update
         const updated = await prisma.device.update({
@@ -282,6 +274,113 @@ export const getAllDevices = async (req, res, next) => {
         next(err);
     }
 };
+export const getDevice = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const device = await prisma.device.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                thingLabel: true,
+                thingName: true,
+                location: true,
+                deviceType: true,
+                feederType: true,
+                scheduledAmountKg: true,
+                morningTime: true,
+                dayTime: true,
+                nightTime: true,
+            },
+        });
+        if (!device) {
+            return next(new AppError("Device not found", 404));
+        }
+        res.status(200).json({
+            status: "success",
+            data: { device },
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+/**
+ * Patch /api/v1/devices/:id
+ * ADMIN ONLY
+ * Body:
+ *  - thingLabel (unique)
+ *  - deviceType: CAMERA | FEEDER
+ *  - location
+ *  - feederType/morningTime/dayTime/nightTime (only for FEEDER)
+ *
+ */
+export const updateDevice = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        // 1) Find the device to know its type
+        const device = await prisma.device.findUnique({
+            where: { id },
+            select: { id: true, deviceType: true },
+        });
+        if (!device) {
+            return next(new AppError("Device not found", 404));
+        }
+        // 2) Build update object based on device type
+        let updateData = {};
+        if (device.deviceType === "CAMERA") {
+            const body = req.body;
+            updateData = {
+                ...(body.thingLabel !== undefined && { thingLabel: body.thingLabel }),
+                ...(body.location !== undefined && { location: body.location }),
+            };
+        }
+        if (device.deviceType === "FEEDER") {
+            const body = req.body;
+            updateData = {
+                ...(body.thingLabel !== undefined && { thingLabel: body.thingLabel }),
+                ...(body.location !== undefined && { location: body.location }),
+                ...(body.feederType !== undefined && { feederType: body.feederType }),
+            };
+            // Only update schedule fields if feederType is provided
+            if (body.feederType === "MANUAL") {
+                updateData.scheduledAmountKg = null;
+                updateData.morningTime = null;
+                updateData.dayTime = null;
+                updateData.nightTime = null;
+            }
+            if (body.feederType === "SCHEDULED") {
+                updateData.scheduledAmountKg = body.scheduledAmountKg ?? null;
+                updateData.morningTime = body.morningTime ?? null;
+                updateData.dayTime = body.dayTime ?? null;
+                updateData.nightTime = body.nightTime ?? null;
+            }
+        }
+        // 3) Update
+        const updated = await prisma.device.update({
+            where: { id: device.id },
+            data: updateData,
+            select: {
+                id: true,
+                thingLabel: true,
+                thingName: true,
+                location: true,
+                deviceType: true,
+                feederType: true,
+                scheduledAmountKg: true,
+                morningTime: true,
+                dayTime: true,
+                nightTime: true,
+            },
+        });
+        return res.status(200).json({
+            status: "success",
+            data: { device: updated },
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
 /**
  * POST /api/v1/devices
  * Body:
@@ -309,9 +408,7 @@ export const createDevice = async (req, res, next) => {
                 nightTime: null,
                 scheduledAmountKg: null,
             };
-        // Transaction: Create device + Get AWS certificates
         const result = await prisma.$transaction(async (tx) => {
-            // 1) Create device in database
             const device = await tx.device.create({
                 data: {
                     thingLabel,
@@ -326,32 +423,13 @@ export const createDevice = async (req, res, next) => {
                     deviceType: true,
                 },
             });
-            // 2) Create AWS IoT Thing and get certificates
-            const awsResponse = (await fetch(`${process.env.AWS_LAMBDA_URL}/provision-device`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    thingName: device.thingName,
-                    deviceType: device.deviceType,
-                }),
-            }));
-            if (!awsResponse.ok) {
-                const errorText = await awsResponse.text();
-                throw new AppError(`AWS device creation failed: ${errorText}`, awsResponse.status === 409 ? 409 : 502);
-            }
-            const awsData = await awsResponse.json();
-            if (!awsData.certificatePem || !awsData.privateKey) {
-                throw new AppError("AWS did not return required certificates", 502);
-            }
+            const { certificatePem, privateKey } = await provisionAwsDevice(device.thingName, device.deviceType);
             return {
                 device,
-                certificate: awsData.certificatePem,
-                privateKey: awsData.privateKey,
+                certificate: certificatePem,
+                privateKey,
             };
         });
-        // Return device info + certificates for download
         return res.status(201).json({
             status: "success",
             data: {
@@ -365,6 +443,116 @@ export const createDevice = async (req, res, next) => {
     }
     catch (err) {
         next(err);
+    }
+};
+// PATCH /api/devices/unassign/:id
+export const forceUnassignDevice = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        // 1) Find the device
+        const device = await prisma.device.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                deviceType: true,
+                thingLabel: true,
+                horsesAsFeeder: {
+                    select: { id: true, name: true },
+                },
+                horsesAsCamera: {
+                    select: { id: true, name: true },
+                },
+            },
+        });
+        if (!device) {
+            return next(new AppError("Device not found", 404));
+        }
+        // 2) Check if device is assigned
+        const isFeederAssigned = device.horsesAsFeeder.length > 0;
+        const isCameraAssigned = device.horsesAsCamera.length > 0;
+        if (!isFeederAssigned && !isCameraAssigned) {
+            return res.status(200).json({
+                status: "success",
+                message: "Device is already unassigned",
+                data: { device },
+            });
+        }
+        // 3) Unassign the device from the horse
+        if (device.deviceType === "FEEDER" && isFeederAssigned) {
+            const horse = device.horsesAsFeeder[0];
+            await prisma.horse.update({
+                where: { id: horse.id },
+                data: { feederId: null },
+            });
+            return res.status(200).json({
+                status: "success",
+                message: `Feeder unassigned from ${horse.name}`,
+                data: {
+                    device: {
+                        id: device.id,
+                        thingLabel: device.thingLabel,
+                        deviceType: device.deviceType,
+                    },
+                    unassignedFrom: {
+                        horseId: horse.id,
+                        horseName: horse.name,
+                    },
+                },
+            });
+        }
+        if (device.deviceType === "CAMERA" && isCameraAssigned) {
+            const horse = device.horsesAsCamera[0];
+            await prisma.horse.update({
+                where: { id: horse.id },
+                data: { cameraId: null },
+            });
+            return res.status(200).json({
+                status: "success",
+                message: `Camera unassigned from ${horse.name}`,
+                data: {
+                    device: {
+                        id: device.id,
+                        thingLabel: device.thingLabel,
+                        deviceType: device.deviceType,
+                    },
+                    unassignedFrom: {
+                        horseId: horse.id,
+                        horseName: horse.name,
+                    },
+                },
+            });
+        }
+        // Should not reach here, but just in case
+        return res.status(200).json({
+            status: "success",
+            message: "Device unassigned successfully",
+            data: { device },
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+export const deleteDevice = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const device = await prisma.device.findFirst({
+            where: { id },
+        });
+        if (!device) {
+            return next(new AppError("No device found", 404));
+        }
+        // Delete device
+        await prisma.device.delete({
+            where: { id },
+        });
+        res.status(204).json({
+            status: "success",
+            data: null,
+        });
+    }
+    catch (error) {
+        next(error);
     }
 };
 //# sourceMappingURL=deviceController.js.map

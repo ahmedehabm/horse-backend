@@ -21,7 +21,6 @@ import { protect } from "./controllers/authController.js";
 // Error handling
 import AppError from "./utils/appError.js";
 import GlobalError from "./controllers/errorController.js";
-import path from "path";
 
 // Initialize Express app
 const app = express();
@@ -30,9 +29,6 @@ const app = express();
 
 // Security headers
 app.use(helmet());
-
-//temporary
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // CORS
 // app.use(
@@ -85,9 +81,6 @@ app.use("/stream", streamRoutes);
 app.use("/api/v1/horses", horseRoutes);
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/devices", deviceRoutes);
-
-//no need right now
-// app.use("/api/v1/feedings", feedingRoutes);
 
 // 4) CATCH UNHANDLED ROUTES
 app.all("/{*any}", (req, res, next) => {

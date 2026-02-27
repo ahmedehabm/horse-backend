@@ -6,6 +6,8 @@ import AppError from "../utils/appError.js";
 import { broadcastStatus } from "../ws/clientWs.js";
 import { generateStreamToken, invalidateStreamToken } from "./streamService.js";
 import { parentPort } from "worker_threads";
+import { getWeight } from "./weightCache.js";
+import { getMockMqttClient } from "../lib/test-weight.js";
 export async function startFeeding(horseId, amountKg, userId) {
     const result = await prisma.$transaction(async (tx) => {
         // 1) Find horse + verify ownership
@@ -29,6 +31,14 @@ export async function startFeeding(horseId, amountKg, userId) {
         }
         if (feeder.deviceType !== DeviceType.FEEDER) {
             throw new AppError("Assigned device is not a feeder", 400);
+        }
+        // Validate against real-time weight
+        const currentWeight = getWeight(feeder.thingName);
+        if (currentWeight === null) {
+            throw new AppError("Unable to determine feeder weight. Device may be offline.", 503);
+        }
+        if (amountKg > currentWeight) {
+            throw new AppError(`Requested ${amountKg}kg exceeds available ${currentWeight}kg`, 400);
         }
         // 3) Try to create activeFeeding directly (will fail if exists due to unique constraint)
         try {
@@ -61,7 +71,8 @@ export async function startFeeding(horseId, amountKg, userId) {
         }
     }, {
         isolationLevel: "Serializable", // ← CRITICAL: Prevents race conditions
-        timeout: 10000,
+        timeout: 20000,
+        maxWait: 5000,
     });
     // Outside transaction: Broadcast and send IoT command
     await broadcastStatus({
@@ -69,6 +80,7 @@ export async function startFeeding(horseId, amountKg, userId) {
         status: "PENDING",
         feedingId: result.feeding.id,
         horseId,
+        ownerId: userId,
     });
     await publishFeedCommand(result.feeder.thingName, {
         type: "FEED_COMMAND",
@@ -76,9 +88,101 @@ export async function startFeeding(horseId, amountKg, userId) {
         targetKg: amountKg,
         horseId: result.horse.id,
     });
-    console.log(`🐴 Feeding started: ${result.horse.name} (${amountKg}kg) via ${result.feeder.thingName}`);
     return result;
 }
+//testing with mock and cache
+// export async function startFeeding(
+//   horseId: string,
+//   amountKg: number,
+//   userId: string,
+// ) {
+//   const mockClient = getMockMqttClient();
+//   // Check if already feeding (in cache, not DB)
+//   const existingFeeding = getActiveFeeding(horseId);
+//   if (existingFeeding) {
+//     throw new AppError("Feeding already in progress", 409);
+//   }
+//   const result = await prisma.$transaction(async (tx) => {
+//     // 1) Find horse + verify ownership
+//     const horse = await tx.horse.findUnique({
+//       where: { id: horseId, ownerId: userId },
+//       select: { id: true, name: true, feederId: true },
+//     });
+//     if (!horse) {
+//       throw new AppError("Horse Forbidden", 403);
+//     }
+//     if (!horse.feederId) {
+//       throw new AppError("Horse has no assigned feeder", 404);
+//     }
+//     // 2) Get feeder
+//     const feeder = await tx.device.findUnique({
+//       where: { id: horse.feederId },
+//       select: { id: true, thingName: true, deviceType: true },
+//     });
+//     if (!feeder) {
+//       throw new AppError("Feeder device not found", 404);
+//     }
+//     if (feeder.deviceType !== DeviceType.FEEDER) {
+//       throw new AppError("Assigned device is not a feeder", 400);
+//     }
+//     // 3) Validate against real-time weight
+//     const currentWeight = getWeight(feeder.thingName);
+//     if (currentWeight === null) {
+//       throw new AppError(
+//         "Unable to determine feeder weight. Device may be offline.",
+//         503,
+//       );
+//     }
+//     if (amountKg > currentWeight) {
+//       throw new AppError(
+//         `Requested ${amountKg}kg exceeds available ${currentWeight}kg`,
+//         400,
+//       );
+//     }
+//     // 4) Create ONLY the history record in DB
+//     const feeding = await tx.feeding.create({
+//       data: {
+//         horseId: horse.id,
+//         deviceId: feeder.id,
+//         requestedKg: amountKg,
+//         status: FeedingStatus.PENDING,
+//       },
+//       select: { id: true, horseId: true, deviceId: true, status: true },
+//     });
+//     return { feeding, horse, feeder };
+//   });
+//   // 5) Store in cache (and in db async)
+//   const activeFeeding = {
+//     feedingId: result.feeding.id,
+//     horseId: result.horse.id,
+//     deviceId: result.feeder.id,
+//     ownerId: userId,
+//     status: "PENDING" as FeedingStatus,
+//     requestedKg: amountKg,
+//   };
+//   setActiveFeeding(result.horse.id, activeFeeding);
+//   // 6) Broadcast and send IoT command
+//   await broadcastStatus({
+//     type: "FEEDING_STATUS",
+//     status: "PENDING",
+//     feedingId: result.feeding.id,
+//     horseId: result.horse.id,
+//     ownerId: userId,
+//   });
+//   // await publishFeedCommand(result.feeder.thingName, {
+//   //   type: "FEED_COMMAND",
+//   //   feedingId: result.feeding.id,
+//   //   targetKg: amountKg,
+//   //   horseId: result.horse.id,
+//   // });
+//   mockClient.startFeedingSimulation({
+//     thingName: result.feeder.thingName,
+//     baseWeight: 15.0,
+//     feedingId: result.feeding.id,
+//     horseId: result.horse.id,
+//   });
+//   return result;
+// }
 export async function startScheduledFeeding(deviceId, timeSlot = "morning") {
     const result = await prisma.$transaction(async (tx) => {
         // 1) Get the device with its assigned horse
@@ -92,6 +196,11 @@ export async function startScheduledFeeding(deviceId, timeSlot = "morning") {
                     select: {
                         id: true,
                         name: true,
+                        owner: {
+                            select: {
+                                id: true,
+                            },
+                        },
                     },
                 },
             },
@@ -102,6 +211,9 @@ export async function startScheduledFeeding(deviceId, timeSlot = "morning") {
         const horse = device.horsesAsFeeder[0];
         if (!horse) {
             throw new AppError("No horse assigned to this feeder", 404);
+        }
+        if (!horse.owner.id) {
+            throw new AppError("horse has no owner", 404);
         }
         const amountKg = Number(device.scheduledAmountKg || 2.0);
         // 2) Try to create activeFeeding directly (will fail if exists)
@@ -136,12 +248,14 @@ export async function startScheduledFeeding(deviceId, timeSlot = "morning") {
         }
     }, {
         isolationLevel: "Serializable", // ← CRITICAL: Prevents race conditions
-        timeout: 10000,
+        timeout: 20000,
+        maxWait: 5000,
     });
     parentPort?.postMessage({
         type: "SCHEDULED_FEED_STARTED",
         payload: {
             horseId: result.horse.id,
+            ownerId: result.horse.owner.id,
             feedingId: result.feeding.id,
             thingName: result.feeder.thingName,
             targetKg: result.feeder.scheduledAmountKg || 2.0,
@@ -150,6 +264,7 @@ export async function startScheduledFeeding(deviceId, timeSlot = "morning") {
     return result;
 }
 export async function startStreaming(horseId, userId) {
+    const mockClient = getMockMqttClient();
     const result = await prisma.$transaction(async (tx) => {
         //  Single query with include (most performant for happy path which it is that you dont expect many errors )
         const horse = await tx.horse.findFirst({
@@ -211,6 +326,12 @@ export async function startStreaming(horseId, userId) {
     await publishStreamCommand(result.camera.thingName, {
         type: "STREAM_START_COMMAND",
         horseId: result.horse.id,
+    });
+    // // Properly typed with horseId
+    mockClient.startStreamSimulation({
+        cameraThingName: result.camera.thingName,
+        horseId: result.horse.id,
+        shouldError: false,
     });
     return {
         horse: result.horse,

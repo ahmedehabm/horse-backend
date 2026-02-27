@@ -11,6 +11,7 @@ import {
   forceUnassignDevice,
   getDevice,
   updateDevice,
+  deleteDevice,
 } from "../controllers/deviceController.js";
 
 import { validateRequest } from "../lib/validateRequest.js";
@@ -52,7 +53,10 @@ router.patch(
   updateDevice,
 );
 
-// 8) create a device feeder/camera (admin)
+// 8) delete device (admin)
+router.delete("/:id", restrictTo("ADMIN"), deleteDevice);
+
+// 9) create a device feeder/camera (admin)
 router.post(
   "/",
   restrictTo("ADMIN"),
@@ -60,7 +64,7 @@ router.post(
   createDevice,
 );
 
-// 9) force unassign device from horse (admin only)
+// 10) force unassign device from horse (admin only)
 router.patch("/unassign/:id", restrictTo("ADMIN"), forceUnassignDevice);
 
 export default router;

@@ -12,6 +12,7 @@ import type {
   StreamCommand,
 } from "../types/globalTypes.js";
 import { emitToRoom } from "../ws/clientWs.js";
+import { setWeight } from "../services/weightCache.js";
 
 interface AwsIotEnv {
   AWS_IOT_ENDPOINT: string;
@@ -219,7 +220,7 @@ function setupMessageHandlers(): void {
         return;
       }
 
-      // ---- WEIGHT STREAM: feeders/{thingName}/weight-event ----
+      // ---- WEIGHT STREAM: feeders/{thingName}/weight-events ----
       if (deviceType === "feeders" && action === "weight-events") {
         const text = payload.toString("utf8").trim();
 
@@ -244,6 +245,9 @@ function setupMessageHandlers(): void {
           console.warn("⚠️ Invalid weight payload", { topic, text });
           return;
         }
+
+        //set the weight in the queue cache to be accessed in the server
+        setWeight(thingName, weightValue);
 
         emitToRoom(`feeder-weight:${thingName}`, "FEEDER_WEIGHT", {
           type: "FEEDER_WEIGHT",
@@ -295,6 +299,7 @@ function setupMessageHandlers(): void {
     }
   });
 }
+
 async function publishFeederWeightCommand(
   thingName: string,
   command: CommandPayload,

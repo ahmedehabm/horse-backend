@@ -6,9 +6,8 @@ import AppError from "../utils/appError.js";
 
 import { prisma } from "../lib/prisma.js";
 
-import { parseFields } from "../utils/apiFeatures.js";
 import { type Prisma } from "@prisma/client";
-import { uploadImageFs } from "../lib/uploadImageFs.js";
+import { uploadImageAws } from "../lib/awsUpload.js";
 
 const storage = multer.memoryStorage();
 
@@ -166,59 +165,28 @@ export const getHorse = async (
 ) => {
   try {
     const { id } = req.params as { id: string };
-    const user = req.user!;
-    const { fields, relations = "true" } = req.query;
 
-    const where = user.role === "ADMIN" ? { id } : { id, ownerId: user.id };
-
-    const select =
-      relations === "false"
-        ? parseFields(fields || "id,name,breed,age,location,ownerId") // flat fields
-        : {
-            ...parseFields(
-              fields ||
-                "id,name,breed,age,location,ownerId,defaultAmountKg,lastFeedAt",
-            ),
-            owner: { select: { id: true, name: true, email: true } },
-            // ✅ NEW: Include both devices
-            feeder: {
-              select: {
-                id: true,
-                deviceType: true,
-                thingName: true,
-                location: true,
-                feederType: true,
-                morningTime: true,
-                dayTime: true,
-                nightTime: true,
-              },
-            },
-            camera: {
-              select: {
-                id: true,
-                deviceType: true,
-                thingName: true,
-                location: true,
-                streamToken: true,
-                streamTokenIsValid: true,
-              },
-            },
-            feedings: {
-              take: 5,
-              orderBy: { createdAt: "desc" } as const,
-              include: {
-                device: {
-                  select: {
-                    id: true,
-                    thingName: true,
-                    deviceType: true,
-                  },
-                },
-              },
-            },
-          };
-
-    const horse = await prisma.horse.findFirst({ where, select });
+    const horse = await prisma.horse.findFirst({
+      where: { id },
+      select: {
+        name: true,
+        location: true,
+        breed: true,
+        age: true,
+        feederId: true,
+        cameraId: true,
+        camera: {
+          select: {
+            thingLabel: true,
+          },
+        },
+        feeder: {
+          select: {
+            thingLabel: true,
+          },
+        },
+      },
+    });
 
     if (!horse) return next(new AppError("No horse found", 404));
 
@@ -271,10 +239,10 @@ export const createHorse = async (
       }
 
       // Upload image to AWS (inside transaction — if it fails, everything rolls back)
-      let imageUrl: string | undefined;
+      let imageUrl: string | null = null;
 
       if (req.file) {
-        imageUrl = await uploadImageFs(req.file);
+        imageUrl = await uploadImageAws(req.file);
       }
 
       //  Create horse record
@@ -282,7 +250,7 @@ export const createHorse = async (
         data: {
           name,
           location,
-          image: imageUrl!,
+          image: imageUrl,
           breed,
           cameraId,
           feederId,
@@ -316,82 +284,83 @@ export const updateHorse = async (
 
     const horse = await prisma.horse.findUnique({
       where: { id },
+      select: {
+        id: true,
+      },
     });
 
     if (!horse) {
       return next(new AppError("No horse found with that ID", 404));
     }
+    const { name, age, breed, location, feederId, cameraId } = req.body;
 
-    const { name, image, location, breed, feederId, age, cameraId } = req.body;
+    const updatedHorse = await prisma.$transaction(async (tx) => {
+      //  VALIDATION: Ensure feederId is a FEEDER device
+      if (feederId) {
+        const feederDevice = await tx.device.findUnique({
+          where: { id: feederId },
+          select: { deviceType: true },
+        });
 
-    // ✅ VALIDATION: If updating feederId, ensure it's a FEEDER device
-    if (feederId && feederId !== horse.feederId) {
-      const feederDevice = await prisma.device.findUnique({
-        where: { id: feederId },
-        select: { deviceType: true },
-      });
+        if (!feederDevice) {
+          throw new AppError("Feeder device not found", 404);
+        }
 
-      if (!feederDevice) {
-        return next(new AppError("Feeder device not found", 404));
+        if (feederDevice.deviceType !== "FEEDER") {
+          throw new AppError("Device must be of type FEEDER", 400);
+        }
       }
 
-      if (feederDevice.deviceType !== "FEEDER") {
-        return next(new AppError("Device must be of type FEEDER", 400));
+      // VALIDATION: Ensure cameraId is a CAMERA device
+      if (cameraId) {
+        const cameraDevice = await tx.device.findUnique({
+          where: { id: cameraId },
+          select: { deviceType: true },
+        });
+
+        if (!cameraDevice) {
+          throw new AppError("Camera device not found", 404);
+        }
+
+        if (cameraDevice.deviceType !== "CAMERA") {
+          throw new AppError("Device must be of type CAMERA", 400);
+        }
       }
-    }
 
-    // ✅ VALIDATION: If updating cameraId, ensure it's a CAMERA device
-    if (cameraId && cameraId !== horse.cameraId) {
-      const cameraDevice = await prisma.device.findUnique({
-        where: { id: cameraId },
-        select: { deviceType: true },
-      });
+      // Upload image to AWS (inside transaction — if it fails, everything rolls back)
+      let imageUrl: string | null = null;
 
-      if (!cameraDevice) {
-        return next(new AppError("Camera device not found", 404));
+      if (req.file) {
+        imageUrl = await uploadImageAws(req.file);
       }
 
-      if (cameraDevice.deviceType !== "CAMERA") {
-        return next(new AppError("Device must be of type CAMERA", 400));
-      }
-    }
-
-    const updatedHorse = await prisma.horse.update({
-      where: { id },
-      data: {
+      // Build update data — only include image if a new one was uploaded
+      const updateData: any = {
         name,
         location,
-        cameraId,
-        image,
         breed,
-        age,
+        cameraId,
         feederId,
-        updatedAt: new Date(),
-      },
-      include: {
-        feeder: {
-          select: {
-            id: true,
-            deviceType: true,
-            thingName: true,
-            location: true,
-            feederType: true,
-          },
+        age,
+      };
+
+      //  Only overwrite image if new file uploaded
+      if (imageUrl) {
+        updateData.image = imageUrl;
+      }
+
+      //  Update horse record
+      const updated = await tx.horse.update({
+        where: {
+          id: horse.id,
         },
-        camera: {
-          select: {
-            id: true,
-            deviceType: true,
-            thingName: true,
-            location: true,
-            streamToken: true,
-          },
-        },
-        owner: { select: { name: true } },
-      },
+        data: updateData,
+      });
+
+      return updated;
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       status: "success",
       data: { horse: updatedHorse },
     });
@@ -400,6 +369,12 @@ export const updateHorse = async (
   }
 };
 
+/**
+ * DELETE /horses/:id?deleteDevices=true|false
+ *
+ * - deleteDevices=false (default): delete horse only (devices remain)
+ * - deleteDevices=true: delete horse + connected feeder/camera (transaction)
+ */
 export const deleteHorse = async (
   req: Request,
   res: Response,
@@ -408,23 +383,43 @@ export const deleteHorse = async (
   try {
     const { id } = req.params as { id: string };
 
-    const horse = await prisma.horse.findFirst({
-      where: { id },
-    });
+    const deleteDevices = req.query.deleteDevices === "true";
 
-    if (!horse) {
-      return next(new AppError("No horse found with that ID", 404));
+    if (!deleteDevices) {
+      const horse = await prisma.horse.findUnique({ where: { id } });
+      if (!horse) return next(new AppError("No horse found", 404));
+
+      await prisma.horse.delete({ where: { id } });
+      return res.sendStatus(204);
     }
 
-    // Delete horse (cascades to feedings)
-    await prisma.horse.delete({
-      where: { id },
-    });
+    await prisma.$transaction(
+      async (tx) => {
+        const horse = await tx.horse.findUnique({
+          where: { id },
+          select: { id: true, feederId: true, cameraId: true },
+        });
 
-    res.status(204).json({
-      status: "success",
-      data: null,
-    });
+        if (!horse) throw new AppError("No horse found", 404);
+
+        const deviceIds = [horse.feederId, horse.cameraId].filter(
+          Boolean,
+        ) as string[];
+
+        // Delete horse first (cascades to Feeding/ActiveFeeding)
+        await tx.horse.delete({ where: { id: horse.id } });
+
+        // Then delete connected devices (if any)
+        if (deviceIds.length) {
+          await tx.device.deleteMany({
+            where: { id: { in: deviceIds } },
+          });
+        }
+      },
+      { isolationLevel: "Serializable", timeout: 10000 },
+    );
+
+    return res.sendStatus(204);
   } catch (error) {
     next(error);
   }
@@ -517,3 +512,74 @@ export async function getHorsesStats(
     next(error);
   }
 }
+
+//test
+// export async function getHorsesStats(
+//   req: Request,
+//   res: Response,
+//   next: NextFunction,
+// ) {
+//   try {
+//     const userId = req.user.id;
+
+//     // 1) Get active feedings from CACHE (not DB!)
+//     const activeFeedings = getActiveFeedingsByOwner(userId);
+
+//     // 2) Active stream (still from DB)
+//     const user = await prisma.user.findUnique({
+//       where: { id: userId },
+//       select: { activeStreamHorseId: true },
+//     });
+
+//     let activeStream: null | {
+//       horseId: string;
+//       status: "STARTED" | "PENDING";
+//       streamToken?: string;
+//     } = null;
+
+//     if (user?.activeStreamHorseId) {
+//       const horse = await prisma.horse.findFirst({
+//         where: { id: user.activeStreamHorseId, ownerId: userId },
+//         select: {
+//           id: true,
+//           camera: {
+//             select: {
+//               streamTokenIsValid: true,
+//               streamToken: true,
+//             },
+//           },
+//         },
+//       });
+
+//       if (!horse) {
+//         activeStream = null;
+//       } else if (horse.camera?.streamTokenIsValid && horse.camera.streamToken) {
+//         activeStream = {
+//           horseId: horse.id,
+//           status: "STARTED",
+//           streamToken: horse.camera.streamToken,
+//         };
+//       } else {
+//         activeStream = {
+//           horseId: horse.id,
+//           status: "PENDING",
+//         };
+//       }
+//     }
+
+//     // 3) Send response
+//     res.status(200).json({
+//       status: "success",
+//       data: {
+//         activeFeedings: activeFeedings.map((f) => ({
+//           horseId: f.horseId,
+//           feedingId: f.feedingId,
+//           status: f.status,
+//         })),
+//         activeStream,
+//       },
+//     });
+//   } catch (error) {
+//     next(error);
+//   }
+// }

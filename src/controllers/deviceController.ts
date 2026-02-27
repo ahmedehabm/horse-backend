@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 import { Prisma, DeviceType, FeederType } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import AppError from "../utils/appError.js";
+import { provisionAwsDevice } from "../lib/awsUpload.js";
 
 const toBool = (v: unknown) => String(v).toLowerCase() === "true";
 const toInt = (v: unknown, fallback: number) => {
@@ -480,6 +481,7 @@ export const updateDevice = async (
  *  - feederType/morningTime/dayTime/nightTime (only for FEEDER)
  *
  */
+
 export const createDevice = async (
   req: Request,
   res: Response,
@@ -514,9 +516,7 @@ export const createDevice = async (
             scheduledAmountKg: null,
           };
 
-    // Transaction: Create device + Get AWS certificates
     const result = await prisma.$transaction(async (tx) => {
-      // 1) Create device in database
       const device = await tx.device.create({
         data: {
           thingLabel,
@@ -532,43 +532,18 @@ export const createDevice = async (
         },
       });
 
-      // 2) Create AWS IoT Thing and get certificates
-      const awsResponse = (await fetch(
-        `${process.env.AWS_LAMBDA_URL}/provision-device`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            thingName: device.thingName,
-            deviceType: device.deviceType,
-          }),
-        },
-      )) as any;
-
-      if (!awsResponse.ok) {
-        const errorText = await awsResponse.text();
-        throw new AppError(
-          `AWS device creation failed: ${errorText}`,
-          awsResponse.status === 409 ? 409 : 502,
-        );
-      }
-
-      const awsData = await awsResponse.json();
-
-      if (!awsData.certificatePem || !awsData.privateKey) {
-        throw new AppError("AWS did not return required certificates", 502);
-      }
+      const { certificatePem, privateKey } = await provisionAwsDevice(
+        device.thingName,
+        device.deviceType,
+      );
 
       return {
         device,
-        certificate: awsData.certificatePem,
-        privateKey: awsData.privateKey,
+        certificate: certificatePem,
+        privateKey,
       };
     });
 
-    // Return device info + certificates for download
     return res.status(201).json({
       status: "success",
       data: {
@@ -584,7 +559,8 @@ export const createDevice = async (
   }
 };
 
-//PATCH /api/devices/unassign/:id
+// PATCH /api/devices/unassign/:id
+
 export const forceUnassignDevice = async (
   req: Request,
   res: Response,
@@ -684,5 +660,35 @@ export const forceUnassignDevice = async (
     });
   } catch (err) {
     next(err);
+  }
+};
+
+export const deleteDevice = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { id } = req.params as { id: string };
+
+    const device = await prisma.device.findFirst({
+      where: { id },
+    });
+
+    if (!device) {
+      return next(new AppError("No device found", 404));
+    }
+
+    // Delete device
+    await prisma.device.delete({
+      where: { id },
+    });
+
+    res.status(204).json({
+      status: "success",
+      data: null,
+    });
+  } catch (error) {
+    next(error);
   }
 };

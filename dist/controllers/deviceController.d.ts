@@ -19,6 +19,18 @@ export declare const updateMyFeeder: (req: Request, res: Response, next: NextFun
  * Admin devices table with pagination + optional filters.
  */
 export declare const getAllDevices: (req: Request, res: Response, next: NextFunction) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const getDevice: (req: Request, res: Response, next: NextFunction) => Promise<void>;
+/**
+ * Patch /api/v1/devices/:id
+ * ADMIN ONLY
+ * Body:
+ *  - thingLabel (unique)
+ *  - deviceType: CAMERA | FEEDER
+ *  - location
+ *  - feederType/morningTime/dayTime/nightTime (only for FEEDER)
+ *
+ */
+export declare const updateDevice: (req: Request, res: Response, next: NextFunction) => Promise<void | Response<any, Record<string, any>>>;
 /**
  * POST /api/v1/devices
  * Body:
@@ -29,4 +41,6 @@ export declare const getAllDevices: (req: Request, res: Response, next: NextFunc
  *
  */
 export declare const createDevice: (req: Request, res: Response, next: NextFunction) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const forceUnassignDevice: (req: Request, res: Response, next: NextFunction) => Promise<void | Response<any, Record<string, any>>>;
+export declare const deleteDevice: (req: Request, res: Response, next: NextFunction) => Promise<void>;
 //# sourceMappingURL=deviceController.d.ts.map

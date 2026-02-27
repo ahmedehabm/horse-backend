@@ -1,6 +1,6 @@
 // src/routes/horseRoutes.ts
 import express from "express";
-import { getAllHorses, getMyHorses, getHorse, createHorse, updateHorse, deleteHorse, getHorsesStats, } from "../controllers/horseController.js";
+import { getAllHorses, getMyHorses, getHorse, createHorse, updateHorse, deleteHorse, getHorsesStats, uploadImage, } from "../controllers/horseController.js";
 import { restrictTo } from "../controllers/authController.js";
 import { validateRequest } from "../lib/validateRequest.js";
 import { createHorseSchema, updateHorseSchema } from "../lib/validators.js";
@@ -21,18 +21,18 @@ router.route("/stats").get(getHorsesStats);
 router
     .route("/")
     .get(restrictTo("ADMIN"), getAllHorses)
-    .post(restrictTo("ADMIN"), validateRequest(createHorseSchema), createHorse); // Admin only
+    .post(restrictTo("ADMIN"), uploadImage, validateRequest(createHorseSchema), createHorse); // Admin only
 // router.route("/unassigned").get(getMyHorses);
 // 3. HORSE-SPECIFIC ROUTES (owner or admin)
 /**
- * GET  /api/v1/horses/:id   → View horse (owner/admin)
- * PATCH /api/v1/horses/:id  → Update horse (owner/admin)
+ * GET  /api/v1/horses/:id   → View horse (admin)
+ * PATCH /api/v1/horses/:id  → Update horse (admin)
  * DELETE /api/v1/horses/:id → Delete horse (admin only)
  */
 router
     .route("/:id")
-    .get(getHorse) // Owner or admin
-    .patch(restrictTo("ADMIN"), validateRequest(updateHorseSchema), updateHorse) // Admin only
+    .get(restrictTo("ADMIN"), getHorse) // Admin only
+    .patch(restrictTo("ADMIN"), uploadImage, validateRequest(updateHorseSchema), updateHorse) // Admin only
     .delete(restrictTo("ADMIN"), deleteHorse); // Admin only
 export default router;
 //# sourceMappingURL=horseRoutes.js.map

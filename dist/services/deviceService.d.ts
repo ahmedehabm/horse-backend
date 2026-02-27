@@ -1,8 +1,8 @@
 export declare function startFeeding(horseId: string, amountKg: number, userId: string): Promise<{
     feeding: {
         id: string;
-        horseId: string;
         deviceId: string;
+        horseId: string;
         status: import("@prisma/client").$Enums.FeedingStatus;
     };
     horse: {
@@ -12,15 +12,15 @@ export declare function startFeeding(horseId: string, amountKg: number, userId: 
     };
     feeder: {
         id: string;
-        deviceType: import("@prisma/client").$Enums.DeviceType;
         thingName: string;
+        deviceType: import("@prisma/client").$Enums.DeviceType;
     };
 }>;
 export declare function startScheduledFeeding(deviceId: string, timeSlot?: "morning" | "day" | "night"): Promise<{
     feeding: {
         id: string;
-        horseId: string;
         deviceId: string;
+        horseId: string;
         status: import("@prisma/client").$Enums.FeedingStatus;
     };
     horse: any;
@@ -33,8 +33,8 @@ export declare function startStreaming(horseId: string, userId: string): Promise
     };
     device: {
         id: string;
-        deviceType: import("@prisma/client").$Enums.DeviceType;
         thingName: string;
+        deviceType: import("@prisma/client").$Enums.DeviceType;
     };
     status: string;
 }>;
@@ -45,8 +45,8 @@ export declare function stopStreaming(horseId: string, userId: string): Promise<
     };
     device: {
         id: string;
-        deviceType: import("@prisma/client").$Enums.DeviceType;
         thingName: string;
+        deviceType: import("@prisma/client").$Enums.DeviceType;
     };
 }>;
 //# sourceMappingURL=deviceService.d.ts.map

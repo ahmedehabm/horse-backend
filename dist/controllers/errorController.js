@@ -58,11 +58,7 @@ const sendErrorProd = (err, res) => {
 export default (err, req, res, next) => {
     err.statusCode ||= 500;
     err.status ||= "error";
-    const env = process.env.NODE_ENV;
-    if (env === "development") {
-        return sendErrorDev(err, res);
-    }
-    // default: production/staging/undefined -> prod-safe response
+    // Transform errors FIRST, then decide how to send
     let error = err;
     if (error?.code === "P2002")
         error = handleDuplicateFieldError(error);
@@ -76,8 +72,14 @@ export default (err, req, res, next) => {
         error = handleJWTError();
     if (error?.name === "TokenExpiredError")
         error = handleJWTExpiredError();
-    if (error?.code?.startsWith?.("P"))
+    // Only catch unhandled Prisma errors
+    if (error?.code?.startsWith?.("P") && !(error instanceof AppError)) {
         error = handlePrismaError(error);
+    }
+    const env = process.env.NODE_ENV;
+    if (env === "development") {
+        return sendErrorDev(error, res);
+    }
     return sendErrorProd(error, res);
 };
 //# sourceMappingURL=errorController.js.map

@@ -17,6 +17,7 @@ export default defineConfig({
   },
   engine: "classic",
   datasource: {
+    // url: DATABASE_URL + "&connection_limit=50",
     url: DATABASE_URL,
   },
 });
